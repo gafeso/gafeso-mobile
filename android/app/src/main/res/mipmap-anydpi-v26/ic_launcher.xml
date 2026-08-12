@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Icône adaptative. minSdk = 33 : c'est CE fichier que tous les appareils
+     supportés affichent — les PNG mipmap-*/ic_launcher.png ne sont qu'un repli
+     que plus aucun lanceur n'atteint.
+
+     La couche `monochrome` sert les icônes thématiques, introduites précisément
+     par Android 13. Sans elle, l'icône resterait en couleur au milieu d'un
+     écran d'accueil thématisé. -->
+<adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android">
+    <background android:drawable="@color/ic_launcher_background" />
+    <foreground android:drawable="@mipmap/ic_launcher_foreground" />
+    <monochrome android:drawable="@mipmap/ic_launcher_monochrome" />
+</adaptive-icon>

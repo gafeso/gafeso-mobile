@@ -1,0 +1,81 @@
+# Miscellaneous
+*.class
+*.log
+*.pyc
+*.swp
+.DS_Store
+.atom/
+.build/
+.buildlog/
+.history
+.svn/
+.swiftpm/
+migrate_working_dir/
+
+# IntelliJ related
+*.iml
+*.ipr
+*.iws
+.idea/
+
+# The .vscode folder contains launch configuration and tasks you configure in
+# VS Code which you may wish to be included in version control, so this line
+# is commented out by default.
+#.vscode/
+
+# Flutter/Dart/Pub related
+**/doc/api/
+**/ios/Flutter/.last_build_id
+.dart_tool/
+.flutter-plugins-dependencies
+.pub-cache/
+.pub/
+/build/
+/android/build/
+/coverage/
+
+# Symbolication related
+app.*.symbols
+
+# Obfuscation related
+app.*.map.json
+
+# Android Studio will place build artifacts here
+/android/app/debug
+/android/app/profile
+/android/app/release
+
+# ── Secrets — JAMAIS dans l'historique (équivalents de clés privées) ──────────
+# Keystore de signature Android + ses mots de passe, et tout .env local.
+**/*.jks
+**/*.keystore
+key.properties
+**/key.properties
+**/.env
+.env
+
+# Licence de seed GÉNÉRÉE AU BUILD (tâche Gradle generateSeedLicense) : la paire Ed25519 est
+# créée en mémoire à chaque compilation, seules la publique + le corps + la signature sont
+# écrits ici. La clé PRIVÉE n'est jamais écrite sur disque, jamais versionnée.
+# (source set DEBUG uniquement : ces assets ne sont jamais empaquetés en release — audit M1)
+android/app/src/debug/assets/seed/seed_ed25519_pub.pem
+android/app/src/debug/assets/seed/seed_license_body.json
+android/app/src/debug/assets/seed/seed_license_sig.b64
+# CEK et blob chiffré : produits au build depuis seed-source/seed_demo.pdf (la SOURCE en clair,
+# elle, est versionnée). Aucune clé de contenu n'est donc jamais versionnée.
+android/app/src/debug/assets/seed/seed_cek.hex
+android/app/src/debug/assets/seed/seed.gafs
+# Filet de sécurité : aucune clé privée / keystore, où que ce soit.
+*.pem
+
+# Documents de travail INTERNES (briefs d'implémentation, amendements de conception,
+# protocoles de spike/session, réconciliations). Ils ne sont pas destinés au dépôt : la doc
+# publique, elle, reste versionnée (README, CONTRIBUTING, SECURITY, LICENSE).
+brief-*.md
+amendement-*.md
+session-device-*.md
+spike-*.md
+reconciliation-*.md
+# Kit gouvernance d'un AUTRE dépôt, déposé ici de passage : ne pas versionner dans le mobile.
+backend-*.md
+

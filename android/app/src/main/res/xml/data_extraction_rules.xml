@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Défense en profondeur (audit M2). allowBackup="false" désactive déjà toute sauvegarde ;
+  ces règles garantissent, si la sauvegarde était un jour réactivée, que le coffre de session
+  et l'identité d'appareil ne quittent JAMAIS le téléphone — ni vers le cloud, ni lors d'un
+  transfert d'appareil. Leur contenu est chiffré par des clés Keystore non-exportables : une
+  copie serait de toute façon inexploitable ailleurs, mais on ne la laisse pas sortir.
+-->
+<data-extraction-rules>
+    <cloud-backup>
+        <exclude domain="sharedpref" path="gafeso_secure.xml" />
+        <exclude domain="sharedpref" path="gafeso_reader.xml" />
+        <exclude domain="file" path="seed.gafs" />
+        <exclude domain="file" path="seed_cek.hex" />
+    </cloud-backup>
+    <device-transfer>
+        <exclude domain="sharedpref" path="gafeso_secure.xml" />
+        <exclude domain="sharedpref" path="gafeso_reader.xml" />
+        <exclude domain="file" path="seed.gafs" />
+        <exclude domain="file" path="seed_cek.hex" />
+    </device-transfer>
+</data-extraction-rules>

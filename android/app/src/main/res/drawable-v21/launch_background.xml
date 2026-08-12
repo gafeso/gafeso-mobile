@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Fond de fenêtre de LaunchTheme, dessiné entre l'écran de démarrage du
+     système et la première image de Flutter.
+
+     Le MÊME vert que windowSplashScreenBackground (values/styles.xml),
+     délibérément : il valait `?android:colorBackground`, c'est-à-dire blanc en
+     thème clair. L'ouverture aurait alors été vert → BLANC → application, avec
+     un éclair blanc au milieu. En l'accordant à l'aplat de l'écran de
+     démarrage, il ne reste qu'une seule transition, celle vers l'application. -->
+<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
+    <item android:drawable="@color/ic_launcher_background" />
+</layer-list>

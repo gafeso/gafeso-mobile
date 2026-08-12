@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Repli pour API < 21, que minSdk = 33 rend inatteignable : c'est
+     drawable-v21 qui s'applique partout. Gardé accordé au vert de l'écran de
+     démarrage pour que les deux fichiers ne racontent pas deux choses
+     différentes. -->
+<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
+    <item android:drawable="@color/ic_launcher_background" />
+</layer-list>

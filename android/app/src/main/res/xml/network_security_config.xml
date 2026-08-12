@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Audit F1 : trafic en clair INTERDIT. Cette configuration s'applique au build de release.
+  Toute connexion http:// echoue ; seul https:// (ancres systeme) est admis. Le release doit
+  etre bati avec une URL HTTPS via le dart-define GAFESO_API_URL (voir README). Le source set
+  debug fournit une variante permissive pour le developpement local (loopback/emulateur).
+-->
+<network-security-config>
+    <base-config cleartextTrafficPermitted="false">
+        <trust-anchors>
+            <certificates src="system" />
+        </trust-anchors>
+    </base-config>
+</network-security-config>

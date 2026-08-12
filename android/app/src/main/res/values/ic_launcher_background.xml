@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Fond de l'icône adaptative et de l'écran de démarrage : le vert de la
+         marque, en aplat (assets/marque/USAGE.md).
+
+         C'est aussi la raison pour laquelle le toit du logo est BLANC sur
+         l'icône et non #1B5E3F : posé sur son propre vert, il disparaîtrait.
+         Voir scripts/generer-icones.mjs. -->
+    <color name="ic_launcher_background">#1B5E3F</color>
+</resources>
