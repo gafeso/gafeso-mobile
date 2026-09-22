@@ -1,8 +1,10 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/foundation.dart';
 
 import 'api/gafeso_api.dart';
+import 'cache/cover_cache.dart';
 import 'api/server_discovery.dart';
 import 'api/offline_service.dart';
 import 'session/session.dart';
@@ -42,6 +44,18 @@ class AppState extends ChangeNotifier {
   final SessionStore sessions;
 
   AppStage stage = AppStage.loading;
+
+  /// Message à présenter sur l'écran de connexion après une session perdue.
+  /// Effacé dès qu'une connexion réussit.
+  String? sessionNotice;
+
+  /// Cache disque des couvertures. Créé une fois : il survit aux écrans, c'est
+  /// tout son intérêt (une vignette vue hier s'affiche hors ligne aujourd'hui).
+  late final CoverCache covers = CoverCache(dossier: storageDir);
+
+  /// Origine du serveur — sert à résoudre les couvertures en chemin relatif,
+  /// servies par le SITE et non par l'API.
+  String? get origineServeur => server?.origin;
   String? tenantSlug;
   AppSession? session;
   String? lastError;
@@ -88,7 +102,35 @@ class AppState extends ChangeNotifier {
   void _wire(String slug, {String? token}) {
     _api?.close();
     _api = GafesoApi(baseUrl: apiBaseUrl, tenantSlug: slug, token: token);
+    // Le client détecte la perte de session (401, ou `membersOnly` sur un 200) ;
+    // l'état applicatif en tire la conséquence, une seule fois.
+    _api!.onSessionPerdue = () => unawaited(sessionExpiree());
     _offline = OfflineService(api: _api!, storageDir: storageDir);
+  }
+
+  /// SESSION PERDUE — le jeton ne vaut plus rien, et on le DIT.
+  ///
+  /// Le jeton vit un jour et il n'y a pas de renouvellement : au lendemain
+  /// d'une connexion, l'app mentait sur deux écrans sans jamais ramener
+  /// personne vers la connexion. Ici on nomme la cause, et on ramène.
+  ///
+  /// ⚠ AUCUNE PURGE, ET C'EST LA DIFFÉRENCE AVEC [logout].
+  /// Une déconnexion est un choix : le lecteur rend l'appareil, le contenu part
+  /// avec. Une expiration n'est le choix de personne — effacer la bibliothèque
+  /// hors ligne à chaque jeton périmé détruirait tous les jours le seul travail
+  /// que le produit existe pour rendre possible : lire sans réseau.
+  ///
+  /// Idempotente : plusieurs requêtes en vol signalent la même perte.
+  Future<void> sessionExpiree() async {
+    if (session == null) return;
+    await sessions.clearSession();
+    session = null;
+    _wire(tenantSlug!);
+    sessionNotice =
+        'Votre session a expiré. Reconnectez-vous pour retrouver le catalogue. '
+        'Les documents déjà téléchargés restent sur l’appareil.';
+    stage = AppStage.login;
+    notifyListeners();
   }
 
   /// Écran 0 — serveur confirmé par l'usager (après affichage du domaine).
@@ -138,6 +180,7 @@ class AppState extends ChangeNotifier {
           await sessions.write(s);
           session = s;
           _wire(s.tenantSlug, token: s.token);
+          sessionNotice = null;
           stage = AppStage.shelf;
           notifyListeners();
           return null;
@@ -154,6 +197,7 @@ class AppState extends ChangeNotifier {
   /// Déconnexion : session effacée, contenu local purgé (la licence part avec).
   Future<void> logout() async {
     await _offline?.purgeEverything();
+    await covers.vider();
     await sessions.clearSession();
     session = null;
     _wire(tenantSlug!);
@@ -164,6 +208,8 @@ class AppState extends ChangeNotifier {
   /// Changement d'école : tout est réinitialisé.
   Future<void> changeTenant() async {
     await _offline?.purgeEverything();
+    // ⚠ Les couvertures d'une école n'ont rien à faire dans une autre.
+    await covers.vider();
     await sessions.clearAll();
     session = null;
     tenantSlug = null;

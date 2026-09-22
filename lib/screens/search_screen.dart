@@ -3,6 +3,8 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 
 import '../api/gafeso_api.dart';
+import '../cache/cover_cache.dart';
+import '../widgets/cover_image.dart';
 import '../models/catalog.dart';
 import '../widgets/freshness_banner.dart';
 
@@ -27,18 +29,33 @@ class SearchScreen extends StatefulWidget {
     super.key,
     required this.search,
     required this.openRecord,
+    this.covers,
+    this.origine,
   });
+
+  /// Cache des couvertures. Optionnel : sans lui, la liste affiche les
+  /// substituts et ne tente aucun réseau — c'est ce que font les tests.
+  final CoverCache? covers;
+  final String? origine;
 
   /// Injectées en fonctions : `testWidgets` tourne en horloge simulée, où une
   /// E/S réseau réelle ne se termine jamais pendant les `pump`.
-  final Future<Object> Function(String q, int page) search;
+  final Future<Object> Function(String q, int page, String? recordType) search;
   final void Function(BuildContext context, SearchHit hit) openRecord;
 
-  static SearchScreen from({Key? key, required GafesoApi api, required void Function(BuildContext, SearchHit) openRecord}) =>
+  static SearchScreen from({
+    Key? key,
+    required GafesoApi api,
+    required void Function(BuildContext, SearchHit) openRecord,
+    CoverCache? covers,
+    String? origine,
+  }) =>
       SearchScreen(
         key: key,
-        search: (q, page) => api.searchCatalog(q, page: page),
+        search: (q, page, type) => api.searchCatalog(q, page: page, recordType: type),
         openRecord: openRecord,
+        covers: covers,
+        origine: origine,
       );
 
   @override
@@ -57,6 +74,16 @@ class _SearchScreenState extends State<SearchScreen> {
   bool _chargeSuite = false;
   String? _erreur;
   String _requeteCourante = '';
+
+  /// Filtre par nature de document. `null` = tout.
+  ///
+  /// ⚠ L'API accepte `dans`, `category`, `language`, `year` et `recordType` ;
+  /// l'app n'envoyait que la requête. Sur un dépôt universitaire, savoir
+  /// distinguer une THÈSE d'un ouvrage est la première chose qu'on demande —
+  /// et le fonds mesuré tient 74 thèses et 137 mémoires parmi 480 notices.
+  /// On expose ce filtre-là, pas les cinq : un écran de recherche qui ouvre
+  /// cinq menus avant la première frappe se referme.
+  String? _type;
 
   @override
   void initState() {
@@ -83,9 +110,12 @@ class _SearchScreenState extends State<SearchScreen> {
     _minuterie = Timer(_delaiSaisie, () => _chercher(q));
   }
 
-  Future<void> _chercher(String q) async {
+  Future<void> _chercher(String q, {bool force = false}) async {
     final requete = q.trim();
-    if (requete.isEmpty) {
+    // ⚠ Une requête VIDE avec un filtre actif est une demande légitime :
+    // « montre-moi les thèses ». On n'efface donc l'écran que s'il n'y a ni
+    // texte ni filtre — sinon on interroge, et le serveur rend la liste filtrée.
+    if (requete.isEmpty && _type == null) {
       setState(() {
         _page = null;
         _erreur = null;
@@ -93,13 +123,14 @@ class _SearchScreenState extends State<SearchScreen> {
       });
       return;
     }
+    if (!force && requete == _requeteCourante && _page != null) return;
     setState(() {
       _chargement = true;
       _erreur = null;
       _requeteCourante = requete;
     });
     try {
-      final p = SearchPage.fromJson(await widget.search(requete, 1));
+      final p = SearchPage.fromJson(await widget.search(requete, 1, _type));
       if (!mounted || _requeteCourante != requete) return;
       setState(() {
         _page = p;
@@ -119,7 +150,7 @@ class _SearchScreenState extends State<SearchScreen> {
     if (p == null || !p.hasMore || _chargeSuite || _chargement) return;
     setState(() => _chargeSuite = true);
     try {
-      final suivante = SearchPage.fromJson(await widget.search(_requeteCourante, p.page + 1));
+      final suivante = SearchPage.fromJson(await widget.search(_requeteCourante, p.page + 1, _type));
       if (!mounted) return;
       setState(() {
         _page = p.merge(suivante);
@@ -175,6 +206,7 @@ class _SearchScreenState extends State<SearchScreen> {
               ),
             ),
           ),
+          _barreDeTypes(),
           Expanded(child: _corps()),
         ],
       ),
@@ -247,6 +279,12 @@ class _SearchScreenState extends State<SearchScreen> {
         }
         final h = p.hits[i];
         return ListTile(
+          leading: CoverImage(
+            coverUrl: h.coverUrl,
+            titre: h.title,
+            cache: widget.covers,
+            origine: widget.origine,
+          ),
           title: Text(h.title),
           subtitle: h.subtitle.isEmpty ? null : Text(h.subtitle),
           trailing: h.category == null ? null : Text(h.category!, style: const TextStyle(fontSize: 11)),
@@ -255,4 +293,46 @@ class _SearchScreenState extends State<SearchScreen> {
       },
     );
   }
+
+  /// Filtre par nature de document.
+  ///
+  /// ⚠ Posé SOUS le champ et non dans un menu : sur un dépôt universitaire,
+  /// « je cherche une thèse » est une intention de départ, pas un raffinement
+  /// d'après-coup. Un filtre qu'il faut aller ouvrir n'est pas utilisé.
+  ///
+  /// Changer de filtre relance la recherche courante — y compris quand elle est
+  /// vide : le serveur répond alors la liste filtrée, ce qui permet de
+  /// PARCOURIR les thèses sans rien taper.
+  Widget _barreDeTypes() {
+    const types = <(String?, String)>[
+      (null, 'Tout'),
+      ('these', 'Thèses'),
+      ('memoire', 'Mémoires'),
+      ('ouvrage', 'Ouvrages'),
+      ('publication', 'Publications'),
+    ];
+    return SizedBox(
+      height: 44,
+      child: ListView(
+        scrollDirection: Axis.horizontal,
+        padding: const EdgeInsets.symmetric(horizontal: 12),
+        children: [
+          for (final (valeur, libelle) in types)
+            Padding(
+              padding: const EdgeInsets.only(right: 8),
+              child: ChoiceChip(
+                label: Text(libelle),
+                selected: _type == valeur,
+                onSelected: (_) {
+                  if (_type == valeur) return;
+                  setState(() => _type = valeur);
+                  _chercher(_controleur.text, force: true);
+                },
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+
 }

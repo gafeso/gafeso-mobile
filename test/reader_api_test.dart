@@ -99,4 +99,23 @@ void main() {
     expect(r.ok, isFalse);
     expect(r.reason, 'Renouvellement refusé par la bibliothèque.');
   });
+
+  test('⚠ une RÉSERVATION refusée ne parle pas de renouvellement', () async {
+    // Les deux appels partageaient une extraction dont la chute nommait le
+    // renouvellement : une réservation sans message serveur annonçait donc un
+    // refus de renouvellement, opération que le lecteur n'a pas demandée.
+    statut = 403;
+    corps = {};
+    final r = await api().placeHold('rec-1');
+    expect(r.ok, isFalse);
+    expect(r.reason, 'Réservation refusée par la bibliothèque.');
+  });
+
+  test('une réservation refusée AVEC message remonte celui du serveur', () async {
+    statut = 409;
+    corps = {'message': 'Vous avez déjà une réservation sur ce titre.'};
+    final r = await api().placeHold('rec-1');
+    expect(r.ok, isFalse);
+    expect(r.reason, 'Vous avez déjà une réservation sur ce titre.');
+  });
 }

@@ -12,7 +12,13 @@ class LoginScreen extends StatefulWidget {
     required this.tenantSlug,
     required this.onLogin,
     required this.onChangeTenant,
+    this.notice,
   });
+
+  /// Avis à présenter AVANT toute saisie — typiquement une session expirée.
+  /// Distinct de l'erreur de saisie : il explique pourquoi on est ici, et il
+  /// n'accuse pas les identifiants, qui n'ont rien fait de mal.
+  final String? notice;
 
   final String tenantSlug;
   final Future<String?> Function({required String email, required String password}) onLogin;
@@ -65,6 +71,31 @@ class _LoginScreenState extends State<LoginScreen> {
               padding: const EdgeInsets.all(24),
               shrinkWrap: true,
               children: [
+                if (widget.notice != null) ...[
+                  Container(
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: Colors.amber.shade50,
+                      border: Border(
+                        left: BorderSide(color: Colors.amber.shade700, width: 3),
+                      ),
+                    ),
+                    child: Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Icon(Icons.schedule, size: 18, color: Colors.amber.shade900),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Text(
+                            widget.notice!,
+                            style: const TextStyle(fontSize: 13),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 20),
+                ],
                 TextField(
                   controller: _email,
                   enabled: !_busy,

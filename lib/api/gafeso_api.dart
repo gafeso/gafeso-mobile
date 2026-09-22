@@ -21,6 +21,22 @@ class GafesoApi {
   String? token;
   final HttpClient _client;
 
+  /// Appelé quand le serveur fait savoir que la session n'est plus valide.
+  ///
+  /// ⚠ POINT DE DÉTECTION UNIQUE, ET C'EST LE POINT. L'expiration ne se
+  /// manifeste pas au même endroit selon la route : les routes gardées rendent
+  /// 401, mais `/opac/records/:id` est PUBLIQUE — elle rend 200 et masque les
+  /// champs réservés. Laisser chaque écran interpréter sa réponse a produit
+  /// deux faux : l'étagère annonçait « hors ligne » sur un réseau qui marche,
+  /// et la fiche « Aucun exemplaire physique » sur une notice qui en a.
+  void Function()? onSessionPerdue;
+
+  /// Signale la perte de session — mais UNIQUEMENT si l'on se croyait connecté.
+  /// Sans jeton, un 401 est un refus d'identifiants, pas une session perdue.
+  void _sessionPerdue() {
+    if (token != null) onSessionPerdue?.call();
+  }
+
   void close() => _client.close(force: true);
 
   Map<String, String> _headers() => {
@@ -36,6 +52,7 @@ class GafesoApi {
     final res = await req.close();
     final text = await res.transform(utf8.decoder).join();
     if (res.statusCode >= 400) {
+      if (res.statusCode == 401) _sessionPerdue();
       throw GafesoApiException(res.statusCode, text, path);
     }
     if (text.isEmpty) return null;
@@ -173,42 +190,57 @@ class GafesoApi {
       // 4xx = refus métier motivé ; on remonte le message du serveur, qui est
       // rédigé pour l'usager. 5xx reste une panne et doit se propager.
       if (e.statusCode >= 500) rethrow;
-      return RenewResult(ok: false, reason: _motif(e.body));
+      return RenewResult(
+        ok: false,
+        reason: e.motif(defaut: 'Renouvellement refusé par la bibliothèque.'),
+      );
     }
   }
 
   Future<void> cancelHold(String holdId) async =>
       _send('POST', '/reader/holds/$holdId/cancel');
 
-  /// Extrait le message destiné à l'usager d'un corps d'erreur NestJS.
-  static String _motif(String body) {
-    try {
-      final j = jsonDecode(body);
-      final m = (j as Map)['message'];
-      if (m is String && m.isNotEmpty) return m;
-      if (m is List && m.isNotEmpty) return m.join(' · ');
-    } catch (_) {
-      // Corps non JSON : on ne montre pas de HTML brut à l'écran.
-    }
-    return 'Renouvellement refusé par la bibliothèque.';
-  }
 
   // ── Catalogue (OPAC) ────────────────────────────────────────────────────
 
   /// Recherche. `limit` volontairement COURT : un étudiant en 3G paie ses
   /// données, et une page de vingt résultats suffit à décider si l'on affine
   /// ou si l'on fait défiler.
-  Future<Object> searchCatalog(String q, {int page = 1, int limit = 20}) async {
+  Future<Object> searchCatalog(
+    String q, {
+    int page = 1,
+    int limit = 20,
+    String? recordType,
+    int? year,
+  }) async {
+    // ⚠ Les filtres ne sont envoyés QUE s'ils valent quelque chose : un
+    // paramètre vide n'est pas un filtre neutre côté serveur, c'est une valeur
+    // à laquelle rien ne correspond.
     final query = Uri(queryParameters: {
       'q': q,
       'page': '$page',
       'limit': '$limit',
+      if (recordType != null && recordType.isNotEmpty) 'recordType': recordType,
+      if (year != null) 'year': '$year',
     }).query;
     return (await _send('GET', '/opac/search?$query')) as Object;
   }
 
-  Future<Object> catalogRecord(String id) async =>
-      (await _send('GET', '/opac/records/$id')) as Object;
+  Future<Object> catalogRecord(String id) async {
+    final r = (await _send('GET', '/opac/records/$id')) as Object;
+    // ⚠ `membersOnly: true` EST UN SIGNAL, PAS UNE DONNÉE.
+    //
+    // Cette route est publique : à un visiteur, le serveur répond correctement
+    // 200 en masquant exemplaires, disponibilité et document numérique, et il
+    // le DIT par ce drapeau. Mais nous, nous avons envoyé un jeton — le
+    // recevoir signifie donc que ce jeton ne vaut plus rien.
+    //
+    // Traité comme une donnée, il produirait le pire des deux mondes : l'app
+    // afficherait « Aucun exemplaire physique pour cette notice. », qui nie des
+    // exemplaires existants, en se croyant toujours connectée.
+    if (r is Map && r['membersOnly'] == true) _sessionPerdue();
+    return r;
+  }
 
   /// Pose une réservation sur une notice. Comme le renouvellement, un refus
   /// métier est un RÉSULTAT motivé, pas une exception.
@@ -218,7 +250,10 @@ class GafesoApi {
       return RenewResult(ok: true);
     } on GafesoApiException catch (e) {
       if (e.statusCode >= 500) rethrow;
-      return RenewResult(ok: false, reason: _motif(e.body));
+      return RenewResult(
+        ok: false,
+        reason: e.motif(defaut: 'Réservation refusée par la bibliothèque.'),
+      );
     }
   }
 
@@ -252,6 +287,31 @@ class GafesoApiException implements Exception {
   final int statusCode;
   final String body;
   final String path;
+
+  /// Le message que le SERVEUR destine à l'usager, extrait du corps NestJS.
+  ///
+  /// ⚠ Il vit ici, sur l'objet qui détient le corps, et non dans un écran : le
+  /// produit rédige des refus précis (« Appareil inconnu ou révoqué. »,
+  /// « Document pas encore préparé pour la lecture hors-ligne. ») et chaque
+  /// appelant qui les remplace par une phrase à lui rend le refus faux ou muet.
+  ///
+  /// [defaut] sert UNIQUEMENT quand le serveur n'a rien rédigé (corps non JSON,
+  /// passerelle, coupure). Il est obligatoire et sans valeur par défaut : une
+  /// chute générique recopiée d'un autre appel est précisément ce qui faisait
+  /// dire « Renouvellement refusé » à une réservation.
+  String motif({required String defaut}) {
+    try {
+      final j = jsonDecode(body);
+      final m = (j as Map)['message'];
+      if (m is String && m.isNotEmpty) return m;
+      // NestJS rend une LISTE quand plusieurs validations échouent.
+      if (m is List && m.isNotEmpty) return m.join(' · ');
+    } catch (_) {
+      // Corps non JSON : on n'affiche pas du HTML brut à l'écran.
+    }
+    return defaut;
+  }
+
   @override
   String toString() => 'GafesoApi $statusCode sur $path : $body';
 }

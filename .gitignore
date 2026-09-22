@@ -79,3 +79,9 @@ reconciliation-*.md
 # Kit gouvernance d'un AUTRE dépôt, déposé ici de passage : ne pas versionner dans le mobile.
 backend-*.md
 
+# Copies MUTÉES du garde de publication, produites par sa recette. Elles doivent
+# être ignorées : le garde refuse de travailler sur un arbre sale, et une copie
+# non ignorée ferait échouer chaque cas pour cette raison-là plutôt que pour la
+# faute qu'on lui soumet.
+scripts/.recette-garde-*.sh
+

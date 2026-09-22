@@ -49,9 +49,13 @@ void main() {
     requetes = [];
   });
 
-  Future<Object> chercher(String q, int page) async {
+  /// Le filtre de type est capté pour pouvoir l'éprouver.
+  String? dernierType;
+
+  Future<Object> chercher(String q, int page, String? recordType) async {
     appels++;
     requetes.add(q);
+    dernierType = recordType;
     if (horsLigne) throw const SocketException('réseau coupé');
     return jsonDecode(reponse(page: page)) as Object;
   }
@@ -132,7 +136,7 @@ void main() {
       (tester) async {
     await tester.pumpWidget(MaterialApp(
       home: SearchScreen(
-        search: (q, p) async =>
+        search: (q, p, t) async =>
             jsonDecode('{"hits":[],"totalHits":0,"page":1,"totalPages":1}') as Object,
         openRecord: (_, _) {},
       ),
@@ -171,4 +175,74 @@ void main() {
     expect(f.page, 2);
     expect(f.hasMore, isFalse);
   });
+
+  group('filtre par nature de document', () {
+    testWidgets('⚠ le type choisi est transmis au serveur', (tester) async {
+      // L'API accepte recordType ; l'app n'envoyait que la requête.
+      await tester.pumpWidget(MaterialApp(
+        home: SearchScreen(search: chercher, openRecord: (_, _) {}),
+      ));
+      await tester.enterText(find.byType(TextField), 'droit');
+      await tester.pump(const Duration(milliseconds: 400));
+      await tester.pumpAndSettle();
+      expect(dernierType, isNull, reason: 'aucun filtre au départ');
+
+      await tester.tap(find.text('Thèses'));
+      await tester.pumpAndSettle();
+      expect(dernierType, 'these');
+    });
+
+    testWidgets('⚠ un filtre SEUL interroge, sans qu’on tape quoi que ce soit',
+        (tester) async {
+      // « Montre-moi les thèses » est une demande complète : c'est ce qui
+      // permet de PARCOURIR le fonds au lieu de devoir deviner un mot.
+      await tester.pumpWidget(MaterialApp(
+        home: SearchScreen(search: chercher, openRecord: (_, _) {}),
+      ));
+      final avant = appels;
+
+      await tester.tap(find.text('Mémoires'));
+      await tester.pumpAndSettle();
+
+      expect(appels, greaterThan(avant));
+      expect(dernierType, 'memoire');
+      expect(requetes.last, '');
+    });
+
+    testWidgets('revenir à « Tout » relance la MÊME requête sans filtre',
+        (tester) async {
+      await tester.pumpWidget(MaterialApp(
+        home: SearchScreen(search: chercher, openRecord: (_, _) {}),
+      ));
+      await tester.enterText(find.byType(TextField), 'droit');
+      await tester.pump(const Duration(milliseconds: 400));
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.text('Ouvrages'));
+      await tester.pumpAndSettle();
+      expect(dernierType, 'ouvrage');
+
+      await tester.tap(find.text('Tout'));
+      await tester.pumpAndSettle();
+      expect(dernierType, isNull);
+      expect(requetes.last, 'droit', reason: 'la requête est conservée');
+    });
+
+    testWidgets('⚠ « Tout » sans requête n’interroge pas : il n’y a rien à chercher',
+        (tester) async {
+      // Le comportement juste, et il se teste : un écran vide n'appelle pas le
+      // serveur pour rien — un étudiant en 3G paie ses données.
+      await tester.pumpWidget(MaterialApp(
+        home: SearchScreen(search: chercher, openRecord: (_, _) {}),
+      ));
+      await tester.tap(find.text('Ouvrages'));
+      await tester.pumpAndSettle();
+      final apresFiltre = appels;
+
+      await tester.tap(find.text('Tout'));
+      await tester.pumpAndSettle();
+      expect(appels, apresFiltre, reason: 'aucun appel : ni texte ni filtre');
+    });
+  });
+
 }

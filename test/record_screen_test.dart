@@ -17,6 +17,19 @@ void main() {
   String notice({
     List<Map<String, dynamic>> items = const [],
     bool digital = false,
+    String fileFormat = 'PDF',
+    String? embargoUntil,
+    Map<String, dynamic>? provenance,
+    String? recordType,
+    String? titleComplement,
+    String? isbn,
+    String? language,
+    String? publicationCity,
+    String? defenseUniversity,
+    String? defensePlace,
+    List<Map<String, dynamic>>? contributors,
+    List<String>? keywords,
+    Map<String, dynamic>? availability,
   }) =>
       jsonEncode({
         'id': 'bdefba53-70ee-4214-b83f-a4cc7f6bde75',
@@ -27,7 +40,23 @@ void main() {
         'publishYear': 2023,
         'category': 'droit',
         'items': items,
-        'digitalCopy': digital ? {'id': 'd1', 'format': 'PDF'} : null,
+        // ⚠ La clé servie par l'OPAC est `fileFormat`. Le fixture disait
+        // `format` : sans effet tant que l'écran ne lisait qu'un booléen,
+        // faux dès qu'il lit le format.
+        'digitalCopy': digital ? {'id': 'd1', 'fileFormat': fileFormat} : null,
+        'embargoUntil': embargoUntil,
+        // 28ᵉ clé du contrat, servie à TOUS (membre ou non) — P7-3.
+        'provenance': provenance,
+        'recordType': recordType,
+        'titleComplement': titleComplement,
+        'isbn': isbn,
+        'language': language,
+        'publicationCity': publicationCity,
+        'defenseUniversity': defenseUniversity,
+        'defensePlace': defensePlace,
+        'contributors': contributors,
+        'keywords': keywords,
+        'availability': availability,
       });
 
   Map<String, dynamic> exemplaire(String statut) => {
@@ -152,4 +181,211 @@ void main() {
     // Laisse la minuterie s'achever proprement.
     await tester.pump(const Duration(seconds: 6));
   });
+
+  group('carte du document numérique — elle ne promet que le vrai', () {
+    testWidgets('PDF hors embargo : la lecture hors connexion est annoncée',
+        (tester) async {
+      noticeJson = notice(digital: true, fileFormat: 'PDF');
+      await monter(tester);
+
+      expect(find.text('Document numérique disponible'), findsOneWidget);
+      expect(find.text('Téléchargeable pour lecture hors connexion.'), findsOneWidget);
+    });
+
+    testWidgets('EPUB : jamais de promesse de lecture hors connexion',
+        (tester) async {
+      // `myDocuments` ne descend que le PDF : promettre le hors-ligne pour un
+      // EPUB envoie le lecteur vers un refus.
+      noticeJson = notice(digital: true, fileFormat: 'EPUB');
+      await monter(tester);
+
+      expect(find.textContaining('hors connexion'), findsOneWidget);
+      expect(find.text('Téléchargeable pour lecture hors connexion.'), findsNothing);
+      expect(find.text('Document numérique disponible (EPUB)'), findsOneWidget);
+      expect(find.textContaining('que le PDF'), findsOneWidget);
+    });
+
+    testWidgets('sous embargo : la date est donnée, rien n’est promis',
+        (tester) async {
+      final dans2ans = DateTime.now().add(const Duration(days: 730));
+      noticeJson = notice(
+        digital: true,
+        fileFormat: 'PDF',
+        embargoUntil: dans2ans.toUtc().toIso8601String(),
+      );
+      await monter(tester);
+
+      expect(find.text('Document sous embargo'), findsOneWidget);
+      expect(find.text('Téléchargeable pour lecture hors connexion.'), findsNothing);
+      final l = dans2ans.toLocal();
+      final jour = '${l.day.toString().padLeft(2, '0')}/'
+          '${l.month.toString().padLeft(2, '0')}/${l.year}';
+      expect(find.textContaining(jour), findsOneWidget);
+    });
+
+    testWidgets('embargo EXPIRÉ : le PDF redevient téléchargeable',
+        (tester) async {
+      noticeJson = notice(
+        digital: true,
+        fileFormat: 'PDF',
+        embargoUntil:
+            DateTime.now().subtract(const Duration(days: 1)).toUtc().toIso8601String(),
+      );
+      await monter(tester);
+
+      expect(find.text('Document sous embargo'), findsNothing);
+      expect(find.text('Téléchargeable pour lecture hors connexion.'), findsOneWidget);
+    });
+
+    testWidgets('aucun document numérique : aucune carte', (tester) async {
+      noticeJson = notice(digital: false);
+      await monter(tester);
+
+      expect(find.textContaining('Document numérique'), findsNothing);
+      expect(find.text('Document sous embargo'), findsNothing);
+    });
+  });
+
+
+  group('provenance — l’invariant P7-3 tient aussi côté client', () {
+    testWidgets('notice moissonnée : elle est marquée comme telle', (tester) async {
+      noticeJson = notice(provenance: {
+        'source': {'id': 's1', 'name': 'Université d’Amani'},
+        'oaiIdentifier': 'oai:amani.bf:1234',
+        'lien': 'https://depot.amani.bf/notice/1234',
+      });
+      await monter(tester);
+
+      expect(
+        find.text('Notice moissonnée — Université d’Amani'),
+        findsOneWidget,
+      );
+      expect(find.textContaining('n’a pas été catalogée ici'), findsOneWidget);
+      expect(find.text('https://depot.amani.bf/notice/1234'), findsOneWidget);
+    });
+
+    testWidgets('notice locale : aucun bandeau', (tester) async {
+      noticeJson = notice(); // provenance absente → null
+      await monter(tester);
+
+      expect(find.textContaining('Notice moissonnée'), findsNothing);
+    });
+
+    testWidgets('source sans lien : on marque, on n’invente pas de lien',
+        (tester) async {
+      noticeJson = notice(provenance: {
+        'source': {'id': 's2', 'name': 'Université d’Exemple'},
+        'oaiIdentifier': 'oai:exemple.bf:77',
+        'lien': null,
+      });
+      await monter(tester);
+
+      expect(find.text('Notice moissonnée — Université d’Exemple'), findsOneWidget);
+      expect(find.textContaining('http'), findsNothing);
+    });
+  });
+
+
+  group('la fiche montre ce qu’un dépôt de thèses a de spécifique', () {
+    testWidgets('thèse : direction, soutenance et type sont affichés',
+        (tester) async {
+      // 211 des 480 notices mesurées portent un DIRECTEUR_MEMOIRE et une
+      // université de soutenance. L’app n’en montrait rien.
+      noticeJson = notice(
+        recordType: 'these',
+        defenseUniversity: 'Université de Tamaro',
+        defensePlace: 'Tamaro',
+        contributors: [
+          {'name': 'Sirima, Rasmata', 'role': 'AUTEUR_PRINCIPAL'},
+          {'name': 'Sanou, Alain', 'role': 'DIRECTEUR_MEMOIRE'},
+        ],
+      );
+      await monter(tester);
+
+      expect(find.text('Sirima, Rasmata'), findsOneWidget);
+      expect(find.text('Sanou, Alain'), findsOneWidget);
+      expect(find.text('Direction'), findsOneWidget);
+      expect(find.text('Thèse'), findsWidgets);
+      expect(find.textContaining('Thèse soutenu'), findsOneWidget);
+      expect(find.textContaining('Université de Tamaro'), findsOneWidget);
+    });
+
+    testWidgets('⚠ un rôle technique n’est jamais montré tel quel',
+        (tester) async {
+      noticeJson = notice(contributors: [
+        {'name': 'Diallo, Boureima', 'role': 'DIRECTEUR_MEMOIRE'},
+      ]);
+      await monter(tester);
+
+      expect(find.textContaining('DIRECTEUR_MEMOIRE'), findsNothing);
+      expect(find.text('Direction'), findsOneWidget);
+    });
+
+    testWidgets('ouvrage : pas de bloc de soutenance', (tester) async {
+      // Un ouvrage ne se soutient pas ; le bloc n’a rien à dire.
+      noticeJson = notice(
+        recordType: 'ouvrage',
+        defenseUniversity: 'Université de Tamaro',
+      );
+      await monter(tester);
+
+      expect(find.text('Ouvrage'), findsOneWidget);
+      expect(find.textContaining('soutenu'), findsNothing);
+    });
+
+    testWidgets('sous-titre, mots-clés et ISBN sont affichés', (tester) async {
+      noticeJson = notice(
+        titleComplement: 'le cas du Burkina Faso',
+        keywords: ['droit constitutionnel', 'Afrique de l’Ouest'],
+        isbn: '978-2-1234-5680-3',
+      );
+      await monter(tester);
+
+      expect(find.text('le cas du Burkina Faso'), findsOneWidget);
+      expect(find.text('droit constitutionnel'), findsOneWidget);
+      expect(find.text('Afrique de l’Ouest'), findsOneWidget);
+      expect(find.text('978-2-1234-5680-3'), findsOneWidget);
+    });
+
+    // ⚠ Deux tests et non un : `monter` deux fois dans le MÊME test réutilise
+    // l'état de l'écran — la notice n'est chargée qu'à l'initState, et la
+    // seconde assertion porterait sur l'affichage de la première.
+    testWidgets('⚠ la langue française n’encombre pas les fiches',
+        (tester) async {
+      // Les 480 notices mesurées sont en `fr` : l’afficher partout ajoute une
+      // ligne à chaque fiche sans jamais rien distinguer.
+      noticeJson = notice(language: 'fr');
+      await monter(tester);
+      expect(find.text('Langue'), findsNothing);
+    });
+
+    testWidgets('une autre langue, elle, est affichée', (tester) async {
+      noticeJson = notice(language: 'en');
+      await monter(tester);
+      expect(find.text('Langue'), findsOneWidget);
+      expect(find.text('en'), findsOneWidget);
+    });
+
+    testWidgets('sans contributeurs servis, l’auteur reste affiché',
+        (tester) async {
+      // Repli : une réponse ancienne ne doit pas montrer MOINS qu’avant.
+      noticeJson = notice();
+      await monter(tester);
+      expect(find.text('Traoré, Awa'), findsOneWidget);
+    });
+
+    testWidgets('⚠ la disponibilité du SERVEUR prime sur le calcul local',
+        (tester) async {
+      // Deux exemplaires en prêt, mais le serveur en annonce un de libre :
+      // c’est lui qui tranche, pas notre arithmétique sur `items`.
+      noticeJson = notice(
+        items: [exemplaire('CHECKED_OUT'), exemplaire('CHECKED_OUT')],
+        availability: {'totalItems': 2, 'available': 1, 'borrowable': true},
+      );
+      await monter(tester);
+
+      expect(find.text('Disponible au comptoir'), findsOneWidget);
+    });
+  });
+
 }

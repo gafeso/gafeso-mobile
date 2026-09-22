@@ -83,6 +83,7 @@ class _Root extends StatelessWidget {
               tenantSlug: state.tenantSlug ?? '',
               onLogin: state.login,
               onChangeTenant: state.changeTenant,
+              notice: state.sessionNotice,
             );
           case AppStage.shelf:
             return ShelfScreen(state: state);

@@ -73,7 +73,20 @@ class _ShelfScreenState extends State<ShelfScreen> {
     // 2) Liste distante (facultative hors-ligne) + bibliothèque locale.
     try {
       _remote = await widget.state.offline.api.myDocuments();
+    } on GafesoApiException catch (e) {
+      // ⚠ UN REFUS DU SERVEUR N'EST PAS UNE ABSENCE DE RÉSEAU.
+      //
+      // Ce `catch` prenait tout et concluait « hors ligne ». À l'expiration du
+      // jeton (un jour, sans renouvellement), l'étagère annonçait donc une
+      // panne de réseau sur un réseau qui marche — en désignant la mauvaise
+      // cause, elle envoyait chercher au mauvais endroit.
+      //
+      // Le 401 est déjà signalé par le client, qui ramène à la connexion ; ici
+      // on se contente de ne pas le maquiller en incident réseau.
+      _remote = [];
+      if (e.statusCode != 401) _offlineMode = true;
     } catch (_) {
+      // Là, c'est bien le réseau (socket, DNS, délai) : la mention est juste.
       _offlineMode = true;
       _remote = [];
     }
@@ -89,9 +102,26 @@ class _ShelfScreenState extends State<ShelfScreen> {
       _local = await widget.state.offline.library.readAll();
       _notice = null;
     } on GafesoApiException catch (e) {
-      _notice = e.statusCode == 403
-          ? 'Vous n’avez pas (ou plus) accès à ce document.'
-          : 'Téléchargement impossible (${e.statusCode}).';
+      // ⚠ LE SERVEUR A DÉJÀ RÉDIGÉ LE REFUS — on le lit au lieu d'en écrire un.
+      //
+      // Le produit distingue des situations qui n'appellent pas la même
+      // conduite : « Appareil inconnu ou révoqué. » (se ré-enrôler),
+      // « Vous n'avez pas accès à ce document. » (demander le droit),
+      // « Licence révoquée : téléchargement refusé. » (le bail a été retiré),
+      // « Document pas encore préparé pour la lecture hors-ligne. » (attendre,
+      // et ce dernier est le cas le PLUS FRÉQUENT du fonds).
+      //
+      // L'écran les aplatissait : un 403 devenait une phrase unique, et tout le
+      // reste un numéro nu — « Téléchargement impossible (400). » — alors que
+      // ce 400 portait la seule explication utilisable par le lecteur.
+      //
+      // La chute ne sert que si le serveur n'a rien rédigé, et elle ne prétend
+      // alors connaître aucun motif.
+      _notice = e.motif(
+        defaut: e.statusCode >= 500
+            ? 'La bibliothèque est momentanément indisponible. Réessayez plus tard.'
+            : 'Téléchargement refusé (${e.statusCode}).',
+      );
     } catch (e) {
       _notice = 'Téléchargement impossible : $e';
     } finally {
@@ -150,11 +180,15 @@ class _ShelfScreenState extends State<ShelfScreen> {
             onPressed: () => Navigator.of(context).push(MaterialPageRoute(
               builder: (_) => SearchScreen.from(
                 api: widget.state.api,
+                covers: widget.state.covers,
+                origine: widget.state.origineServeur,
                 openRecord: (ctx, hit) => Navigator.of(ctx).push(MaterialPageRoute(
                   builder: (_) => RecordScreen.from(
                     api: widget.state.api,
                     recordId: hit.id,
                     titleHint: hit.title,
+                    covers: widget.state.covers,
+                    origine: widget.state.origineServeur,
                   ),
                 )),
               ),

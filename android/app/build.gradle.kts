@@ -233,7 +233,17 @@ android {
 
     namespace = "com.gafeso.gafeso_mobile"
     compileSdk = flutter.compileSdkVersion
-    ndkVersion = "26.3.11579264" // NDK réellement installé
+    // ⚠ ALIGNÉ SUR CE QUE LES PLUGINS RÉCLAMENT (flutter_local_notifications et
+    // mobile_scanner demandent tous deux le 28.2). Le projet imposait le 26.3 :
+    // du code natif tiers se construisait donc avec un NDK que ses auteurs
+    // n'avaient pas visé — ça marche jusqu'au jour où ça casse, et ça casse
+    // alors dans du natif, là où le diagnostic coûte le plus cher.
+    // ⚠ ALIGNÉ SUR CE QUE LES PLUGINS RÉCLAMENT : flutter_local_notifications et
+    // mobile_scanner demandent tous deux le 28.2. Le projet imposait le 26.3 — du
+    // code natif tiers se construisait donc avec un NDK que ses auteurs n.avaient
+    // pas visé. Ça marche jusqu.au jour où ça casse, et ça casse alors dans du
+    // natif, là où le diagnostic coûte le plus cher.
+    ndkVersion = "28.2.13676358"
 
     // Expose BuildConfig.DEBUG au code Kotlin (utilisé pour n'exposer le canal seed qu'en debug).
     buildFeatures { buildConfig = true }

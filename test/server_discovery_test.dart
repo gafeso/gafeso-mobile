@@ -81,9 +81,9 @@ void main() {
       descripteur = {
         'version': 1,
         'api': 'http://api.localhost',
-        'tenant': 'universite-joseph-ki-zer',
-        'name': 'Université Joseph Ki-Zerbo',
-        'enrollmentUrl': 'http://localhost:8080/e/universite-joseph-ki-zer',
+        'tenant': 'universite-tamaro',
+        'name': 'Université de Tamaro',
+        'enrollmentUrl': 'http://localhost:8080/e/universite-tamaro',
       };
       final d = ServerDiscovery();
       addTearDown(d.close);
@@ -91,8 +91,8 @@ void main() {
       final cfg = await d.resolve(origin);
 
       expect(cfg.apiUrl, 'http://api.localhost');
-      expect(cfg.tenantSlug, 'universite-joseph-ki-zer');
-      expect(cfg.schoolName, 'Université Joseph Ki-Zerbo');
+      expect(cfg.tenantSlug, 'universite-tamaro');
+      expect(cfg.schoolName, 'Université de Tamaro');
       expect(cfg.displayHost, '127.0.0.1');
     });
 
