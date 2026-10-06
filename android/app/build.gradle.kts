@@ -248,6 +248,18 @@ android {
     // Expose BuildConfig.DEBUG au code Kotlin (utilisé pour n'exposer le canal seed qu'en debug).
     buildFeatures { buildConfig = true }
 
+    // ⚠ Drapeau de CAPTURE D'ÉCRAN, pour produire les visuels de la fiche Play.
+    // `FLAG_SECURE` interdit la capture à tout le monde, nous compris. Ce drapeau
+    // la lève — et il vaut `false` partout sauf si on le demande explicitement :
+    //   flutter build apk --debug --dart-define=GAFESO_CAPTURES_FICHE=true
+    defaultConfig {
+        buildConfigField(
+            "boolean",
+            "CAPTURES_FICHE",
+            (project.findProperty("captures") as String? ?: "false").toBoolean().toString(),
+        )
+    }
+
     compileOptions {
         // Exigé par flutter_local_notifications : le greffon utilise l'API
         // java.time, absente des Android anciens. Le « desugaring » la fournit

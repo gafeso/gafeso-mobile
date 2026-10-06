@@ -168,11 +168,41 @@ class ServerDiscovery {
     // échouerait au premier appel.
     if (api == null || api.isEmpty) return null;
     return ServerConfig(
-      apiUrl: api.replaceAll(RegExp(r'/+$'), ''),
+      apiUrl: normaliserAdresseApi(api, origin),
       origin: origin.toString(),
       tenantSlug: (body['tenant'] as String?)?.trim(),
       schoolName: (body['name'] as String?)?.trim(),
     );
+  }
+
+  /// Rend une adresse d'API UTILISABLE telle quelle comme préfixe d'URL.
+  ///
+  /// ⚠ DÉFAUT TROUVÉ SUR TÉLÉPHONE RÉEL, à la connexion : « No host specified in
+  /// URI ». Le descripteur de production annonce `"api": "api.demo.gafeso.org"` —
+  /// un HÔTE NU, sans schéma. L'adresse était reprise telle quelle, donc
+  /// `Uri.parse('api.demo.gafeso.org/auth/login')` produisait une URI RELATIVE,
+  /// sans hôte, et le client HTTP refusait. Rien dans le descripteur n'est
+  /// fautif : c'est une forme normale qu'il fallait accepter.
+  ///
+  /// Le schéma manquant est HÉRITÉ de l'adresse saisie par l'usager : s'il est
+  /// venu en `https`, son API est en `https`.
+  ///
+  /// ⚠ ET UN REPLI EN CLAIR EST REFUSÉ. Un descripteur servi en `https` qui
+  /// désignerait une API en `http` ferait retomber la session en clair sans que
+  /// l'usager l'ait demandé. Le release le bloquerait de toute façon
+  /// (`cleartextTrafficPermitted=false`) — mais bien plus tard, et sans dire
+  /// pourquoi.
+  static String normaliserAdresseApi(String brut, Uri origin) {
+    final nu = brut.trim().replaceAll(RegExp(r'/+$'), '');
+    final avecSchema = RegExp(r'^[a-zA-Z][a-zA-Z0-9+.-]*://').hasMatch(nu);
+    if (!avecSchema) return '${origin.scheme}://$nu';
+    if (origin.scheme == 'https' && nu.startsWith('http://')) {
+      throw ServerDiscoveryException(
+        'Ce serveur annonce une API NON CHIFFRÉE ($nu) alors que son adresse est '
+        'sécurisée. Refusé : vos identifiants circuleraient en clair.',
+      );
+    }
+    return nu;
   }
 
   Future<bool> _tryHealth(Uri origin) async {

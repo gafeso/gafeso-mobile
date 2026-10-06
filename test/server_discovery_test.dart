@@ -156,4 +156,59 @@ void main() {
     expect(TenantCode.origin(scanne).toString(), 'https://biblio.ecole.bf');
     expect(ServerDiscovery.normalizeOrigin(scanne).toString(), 'https://biblio.ecole.bf');
   });
+
+  group('⚠ adresse d’API sans schéma — défaut trouvé sur téléphone réel', () {
+    // Le descripteur de production annonce `"api": "api.demo.gafeso.org"` : un
+    // hôte NU. Repris tel quel, il produisait `Uri.parse('api.demo.gafeso.org/
+    // auth/login')` — une URI relative, sans hôte — et la connexion échouait sur
+    // « No host specified in URI ». Rien dans le descripteur n'était fautif.
+    test('un hôte nu hérite du schéma de l’adresse saisie', () {
+      expect(
+        ServerDiscovery.normaliserAdresseApi(
+            'api.demo.gafeso.org', Uri.parse('https://demo.gafeso.org')),
+        'https://api.demo.gafeso.org',
+      );
+      expect(
+        ServerDiscovery.normaliserAdresseApi(
+            'api.local.test:4000', Uri.parse('http://local.test:3000')),
+        'http://api.local.test:4000',
+      );
+    });
+
+    test('et l’URL produite a bien un hôte — ce qui manquait', () {
+      final u = Uri.parse(
+        '${ServerDiscovery.normaliserAdresseApi('api.demo.gafeso.org', Uri.parse('https://demo.gafeso.org'))}/auth/login',
+      );
+      expect(u.hasScheme, isTrue);
+      expect(u.host, 'api.demo.gafeso.org');
+      expect(u.path, '/auth/login');
+    });
+
+    test('une adresse DÉJÀ complète n’est pas touchée', () {
+      expect(
+        ServerDiscovery.normaliserAdresseApi(
+            'https://api.exemple.bf/', Uri.parse('https://exemple.bf')),
+        'https://api.exemple.bf',
+      );
+    });
+
+    test('⚠ un repli en CLAIR depuis une adresse sécurisée est REFUSÉ', () {
+      // Sans ce refus, la session repartirait en http sans que personne ne l'ait
+      // demandé — et le release le bloquerait bien plus tard, sans expliquer.
+      expect(
+        () => ServerDiscovery.normaliserAdresseApi(
+            'http://api.exemple.bf', Uri.parse('https://exemple.bf')),
+        throwsA(isA<ServerDiscoveryException>()),
+      );
+    });
+
+    test('mais http → http reste permis (développement local)', () {
+      expect(
+        ServerDiscovery.normaliserAdresseApi(
+            'http://api.local.test', Uri.parse('http://local.test')),
+        'http://api.local.test',
+      );
+    });
+  });
+
 }

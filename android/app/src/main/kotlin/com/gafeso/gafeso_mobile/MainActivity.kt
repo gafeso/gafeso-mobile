@@ -19,7 +19,28 @@ import io.flutter.plugin.common.MethodChannel
 class MainActivity : FlutterActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
-        window.setFlags(WindowManager.LayoutParams.FLAG_SECURE, WindowManager.LayoutParams.FLAG_SECURE)
+        // ⚠ CAPTURE AUTORISÉE UNIQUEMENT POUR PRODUIRE LES VISUELS DE LA FICHE,
+        // et seulement en DEBUG. `FLAG_SECURE` interdit la capture à TOUT LE
+        // MONDE — y compris à nous : impossible de photographier un écran pour
+        // le magasin, sur un téléphone comme sur un émulateur.
+        //
+        // La levée est doublement gardée : `BuildConfig.DEBUG` (donc jamais dans
+        // un artefact publiable) ET la propriété Gradle `-Pcaptures=true`, qui
+        // vaut `false` partout ailleurs. Deux conditions, parce qu'une seule
+        // finit par être satisfaite par accident.
+        //
+        //   flutter build apk --debug -Pcaptures=true
+        //
+        // ⚠ UN BUILD AINSI PRODUIT NE SE DISTRIBUE PAS : le filigrane et le
+        // blocage de capture sont la contrepartie donnée aux auteurs des thèses.
+        val capturesAutorisees =
+            BuildConfig.DEBUG && BuildConfig.CAPTURES_FICHE
+        if (!capturesAutorisees) {
+            window.setFlags(
+                WindowManager.LayoutParams.FLAG_SECURE,
+                WindowManager.LayoutParams.FLAG_SECURE,
+            )
+        }
         super.onCreate(savedInstanceState)
     }
 

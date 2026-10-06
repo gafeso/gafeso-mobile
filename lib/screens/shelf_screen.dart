@@ -146,6 +146,33 @@ class _ShelfScreenState extends State<ShelfScreen> {
     );
   }
 
+  /// RENOUVELLEMENT d'un bail expiré.
+  ///
+  /// ⚠ C'est `download()` : il réémet une licence et RÉUTILISE le blob déjà sur
+  /// l'appareil. Un étudiant en 3G ne repaie donc pas les mégaoctets pour une
+  /// date — seule la licence est refaite.
+  ///
+  /// Un refus passe par `motif()` : la cause vient du serveur (droit perdu,
+  /// embargo, appareil révoqué, document non préparé) et arrive intacte.
+  Future<void> _renouveler(String docId, String titre) async {
+    setState(() => _busy.add(docId));
+    try {
+      await widget.state.offline.download(docId: docId, title: titre);
+      _local = await widget.state.offline.library.readAll();
+      _notice = 'Licence renouvelée : « $titre » est lisible hors connexion.';
+    } on GafesoApiException catch (e) {
+      _notice = e.motif(
+        defaut: e.statusCode >= 500
+            ? 'La bibliothèque est momentanément indisponible. Réessayez plus tard.'
+            : 'Renouvellement refusé (${e.statusCode}).',
+      );
+    } catch (e) {
+      _notice = 'Renouvellement impossible : $e';
+    } finally {
+      if (mounted) setState(() => _busy.remove(docId));
+    }
+  }
+
   Future<void> _remove(String docId) async {
     await widget.state.offline.purge(docId);
     _local = await widget.state.offline.library.readAll();
@@ -245,7 +272,7 @@ class _ShelfScreenState extends State<ShelfScreen> {
                   ),
                 Expanded(
                   child: ids.isEmpty
-                      ? const Center(child: Text('Aucun document disponible.'))
+                      ? _etagereVide()
                       : RefreshIndicator(
                           onRefresh: _load,
                           child: ListView(
@@ -254,6 +281,8 @@ class _ShelfScreenState extends State<ShelfScreen> {
                                 _DocTile(
                                   title: titles[id] ?? id,
                                   downloaded: _local.containsKey(id),
+                                  expiree: _local[id]?.estExpiree(DateTime.now()) ?? false,
+                                  finDeBail: _local[id]?.expiresAt,
                                   busy: _busy.contains(id),
                                   onDownload: () => _download(
                                     _remote.firstWhere(
@@ -263,6 +292,7 @@ class _ShelfScreenState extends State<ShelfScreen> {
                                     ),
                                   ),
                                   onOpen: () => _open(id, titles[id] ?? id),
+                                  onRenew: () => _renouveler(id, titles[id] ?? id),
                                   onRemove: () => _remove(id),
                                 ),
                             ],
@@ -273,6 +303,54 @@ class _ShelfScreenState extends State<ShelfScreen> {
             ),
     );
   }
+
+  /// Étagère vide — et POURQUOI elle l'est.
+  ///
+  /// ⚠ « Aucun document disponible. » se lisait « la bibliothèque n'a rien », là
+  /// où la vérité est « rien n'est PRÉPARÉ pour le hors-ligne ». Sur la démo,
+  /// 352 notices et 88 fichiers existent, et aucun n'est ingéré : le lecteur
+  /// aurait conclu à un fonds vide. Ce n'est pas un mensonge, c'est une phrase
+  /// qui laisse se former une conclusion fausse — la même famille que
+  /// « hors ligne » pour une session morte.
+  ///
+  /// L'app ne sait pas combien de fichiers existe le catalogue (ce chiffre est
+  /// sur `/opac/chiffres`, qu'elle n'appelle pas). Elle ne l'invente donc pas :
+  /// elle nomme la CONDITION qui manque, et elle indique où regarder.
+  Widget _etagereVide() => Center(
+        child: Padding(
+          padding: const EdgeInsets.all(32),
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Icon(
+                _offlineMode ? Icons.cloud_off_outlined : Icons.download_outlined,
+                size: 44,
+                color: Colors.black26,
+              ),
+              const SizedBox(height: 14),
+              Text(
+                _offlineMode
+                    // Hors ligne, on ne SAIT pas ce que la bibliothèque propose :
+                    // on décrit l'appareil, pas le fonds.
+                    ? 'Aucun document sur cet appareil.'
+                    : 'Aucun document n’est prêt pour la lecture hors connexion.',
+                textAlign: TextAlign.center,
+                style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w500),
+              ),
+              const SizedBox(height: 8),
+              Text(
+                _offlineMode
+                    ? 'Reconnectez-vous pour voir ce que la bibliothèque propose.'
+                    : 'Le catalogue peut contenir des documents numériques que la '
+                        'bibliothèque n’a pas encore préparés. Cherchez-y : la fiche '
+                        'd’une notice vous dira ce qu’il en est.',
+                textAlign: TextAlign.center,
+                style: const TextStyle(fontSize: 13, color: Colors.black54, height: 1.4),
+              ),
+            ],
+          ),
+        ),
+      );
 }
 
 class _DocTile extends StatelessWidget {
@@ -283,41 +361,104 @@ class _DocTile extends StatelessWidget {
     required this.onDownload,
     required this.onOpen,
     required this.onRemove,
+    this.expiree = false,
+    this.finDeBail,
+    this.onRenew,
   });
 
   final String title;
   final bool downloaded;
   final bool busy;
+
+  /// Le bail est-il échu ? ⚠ Un document expiré est TOUJOURS sur l'appareil —
+  /// c'est sa licence qui ne vaut plus, pas son contenu. On ne le purge donc
+  /// pas : seule une réponse du serveur (`revoked`/`expired`) le retire, jamais
+  /// l'horloge locale, qu'un changement d'heure suffirait à fausser.
+  final bool expiree;
+  final DateTime? finDeBail;
+
   final VoidCallback onDownload;
   final VoidCallback onOpen;
   final VoidCallback onRemove;
+  final VoidCallback? onRenew;
+
+  static String _jour(DateTime d) {
+    final l = d.toLocal();
+    return '${l.day.toString().padLeft(2, '0')}/'
+        '${l.month.toString().padLeft(2, '0')}/${l.year}';
+  }
 
   @override
   Widget build(BuildContext context) {
-    return ListTile(
-      leading: Icon(downloaded ? Icons.offline_pin : Icons.picture_as_pdf_outlined),
-      title: Text(title),
-      subtitle: Text(downloaded ? 'Disponible hors ligne' : 'À télécharger'),
-      trailing: busy
-          ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2))
-          : downloaded
-              ? Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    IconButton(
-                      tooltip: 'Retirer de l’appareil',
-                      icon: const Icon(Icons.delete_outline),
-                      onPressed: onRemove,
-                    ),
-                    FilledButton(onPressed: onOpen, child: const Text('Lire')),
-                  ],
+    // ⚠ TROIS ÉTATS, ET LE TROISIÈME MANQUAIT. L'étagère annonçait « Disponible
+    // hors ligne » pour un bail échu : le lecteur natif refusait ensuite
+    // d'ouvrir, et rien n'avait prévenu. La date était pourtant sur l'appareil,
+    // dans le corps de licence.
+    final sousTitre = !downloaded
+        ? 'À télécharger'
+        : expiree
+            ? (finDeBail == null
+                ? 'Licence expirée — à renouveler'
+                : 'Licence expirée le ${_jour(finDeBail!)} — à renouveler')
+            : 'Disponible hors ligne';
+
+    final icone = !downloaded
+        ? Icons.picture_as_pdf_outlined
+        : expiree
+            ? Icons.lock_clock_outlined
+            : Icons.offline_pin;
+
+    Widget actions() {
+      if (busy) {
+        return const SizedBox(
+          width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2));
+      }
+      if (!downloaded) {
+        return OutlinedButton.icon(
+          onPressed: onDownload,
+          icon: const Icon(Icons.download),
+          label: const Text('Télécharger'),
+        );
+      }
+      return Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          IconButton(
+            tooltip: 'Retirer de l’appareil',
+            icon: const Icon(Icons.delete_outline),
+            onPressed: onRemove,
+          ),
+          // ⚠ « Renouveler » REMPLACE « Lire » quand le bail est échu : proposer
+          // « Lire » mènerait au refus du lecteur, c'est-à-dire à un geste dont
+          // on connaît déjà l'échec.
+          expiree
+              ? FilledButton(
+                  onPressed: onRenew,
+                  child: const Text('Renouveler'),
                 )
-              : OutlinedButton.icon(
-                  onPressed: onDownload,
-                  icon: const Icon(Icons.download),
-                  label: const Text('Télécharger'),
-                ),
-      onTap: downloaded ? onOpen : onDownload,
+              : FilledButton(onPressed: onOpen, child: const Text('Lire')),
+        ],
+      );
+    }
+
+    return ListTile(
+      leading: Icon(
+        icone,
+        color: expiree && downloaded ? Colors.amber.shade800 : null,
+      ),
+      title: Text(title),
+      subtitle: Text(
+        sousTitre,
+        style: expiree && downloaded
+            ? TextStyle(color: Colors.amber.shade900, fontWeight: FontWeight.w500)
+            : null,
+      ),
+      trailing: actions(),
+      onTap: !downloaded
+          ? onDownload
+          : expiree
+              ? onRenew
+              : onOpen,
     );
   }
 }
