@@ -77,8 +77,14 @@ class AppState extends ChangeNotifier {
   /// Sans circulation physique, « étagère » et « prêt » n'ont pas de référent :
   /// l'usager ne reçoit rien au comptoir, il consulte des documents que son
   /// établissement lui ouvre. Le mot doit le dire.
+  ///
+  /// ⚠ COURT, ET C'EST MESURÉ. « Mes documents hors ligne » demande 534 dp à la
+  /// taille d'un titre de barre : il ne tient sur AUCUN écran de 360 dp, quelle
+  /// que soit la taille de police et même sans une seule icône. Le qualificatif
+  /// « hors ligne » vit donc dans le corps de l'écran — l'état vide le dit, et
+  /// chaque ligne téléchargée porte « Disponible hors ligne ».
   String get titreEtagere =>
-      circulationActive ? 'Mon étagère' : 'Mes documents hors ligne';
+      circulationActive ? 'Mon étagère' : 'Mes documents';
 
   /// Prend acte du refus. Silencieux par construction : l'absence d'un module
   /// n'est pas une panne, et il n'y a RIEN à annoncer à l'usager — on retire

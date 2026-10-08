@@ -1,5 +1,7 @@
 import 'package:barcode_widget/barcode_widget.dart';
 import 'package:flutter/material.dart';
+
+import '../theme/gafeso_theme.dart';
 import 'package:flutter/services.dart';
 
 import '../api/gafeso_api.dart';
@@ -95,7 +97,7 @@ class _LibraryCardScreenState extends State<LibraryCardScreen> {
   Widget build(BuildContext context) {
     final c = _carte.value;
     return Scaffold(
-      backgroundColor: Colors.white,
+      backgroundColor: context.gafeso.carte,
       appBar: AppBar(title: const Text('Ma carte')),
       body: SafeArea(
         child: _chargement && c == null
@@ -127,7 +129,7 @@ class _LibraryCardScreenState extends State<LibraryCardScreen> {
               style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold),
             ),
             const SizedBox(height: 4),
-            Text(c.category, style: const TextStyle(fontSize: 14, color: Colors.black54)),
+            Text(c.category, style: TextStyle(fontSize: 14, color: context.gafeso.surCarteSecondaire)),
             const SizedBox(height: 32),
             // Symbologie donnée par le SERVEUR, jamais devinée.
             //
@@ -140,7 +142,7 @@ class _LibraryCardScreenState extends State<LibraryCardScreen> {
               // Fond blanc et marge : une douchette lit mal un code collé au
               // bord ou posé sur une couleur.
               Container(
-                color: Colors.white,
+                color: context.gafeso.carte,
                 padding: const EdgeInsets.all(16),
                 child: BarcodeWidget(
                   barcode: Barcode.code128(),
@@ -153,7 +155,7 @@ class _LibraryCardScreenState extends State<LibraryCardScreen> {
             else
               Container(
                 padding: const EdgeInsets.all(16),
-                color: Colors.amber.shade100,
+                color: context.gafeso.avertissementFond,
                 child: Text(
                   'Cette bibliothèque utilise un format de code-barres que '
                   'l’application ne sait pas dessiner (« ${c.symbology} »). '
@@ -174,9 +176,9 @@ class _LibraryCardScreenState extends State<LibraryCardScreen> {
               ),
             ),
             const SizedBox(height: 24),
-            const Text(
+            Text(
               'Présentez ce code au comptoir.',
-              style: TextStyle(fontSize: 13, color: Colors.black54),
+              style: TextStyle(fontSize: 13, color: context.gafeso.surCarteSecondaire),
             ),
           ],
         ),

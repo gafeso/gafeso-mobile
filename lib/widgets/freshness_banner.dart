@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import '../theme/gafeso_theme.dart';
+
 import '../cache/offline_cache.dart';
 
 /// Bandeau de fraîcheur — présent sur CHAQUE écran servi depuis le cache.
@@ -52,12 +54,12 @@ class FreshnessBanner extends StatelessWidget {
 
     final (couleur, icone, texte) = switch (etat) {
       Freshness.never => (
-          Colors.orange.shade100,
+          context.gafeso.avertissementFond,
           Icons.cloud_off,
           lastError ?? 'Jamais synchronisé — connectez-vous une fois pour voir vos données.',
         ),
       _ => (
-          Colors.amber.shade100,
+          context.gafeso.avertissementFond,
           Icons.history,
           lastError == null
               ? freshnessLabel(syncedAt, maintenant)
@@ -116,7 +118,7 @@ class EmptyState extends StatelessWidget {
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              Icon(icon, size: 48, color: Colors.grey),
+              Icon(icon, size: 48, color: context.gafeso.texteSecondaire),
               const SizedBox(height: 16),
               Text(title,
                   textAlign: TextAlign.center,
@@ -124,7 +126,7 @@ class EmptyState extends StatelessWidget {
               const SizedBox(height: 8),
               Text(message,
                   textAlign: TextAlign.center,
-                  style: const TextStyle(fontSize: 14, color: Colors.black54)),
+                  style: TextStyle(fontSize: 14, color: context.gafeso.texteSecondaire)),
               if (action != null) ...[const SizedBox(height: 20), action!],
             ],
           ),

@@ -2,6 +2,8 @@ import 'dart:io';
 
 import 'package:flutter/material.dart';
 
+import '../theme/gafeso_theme.dart';
+
 import '../cache/cover_cache.dart';
 
 /// Couverture d'une notice, ou son substitut.
@@ -82,7 +84,7 @@ class _CoverImageState extends State<CoverImage> {
         width: widget.largeur,
         height: widget.hauteur,
         child: f == null
-            ? _substitut()
+            ? _substitut(context)
             : Image.file(
                 f,
                 fit: BoxFit.cover,
@@ -91,25 +93,25 @@ class _CoverImageState extends State<CoverImage> {
                 // Un fichier illisible (téléchargement tronqué, format
                 // inattendu) retombe sur le substitut au lieu de peindre une
                 // icône d'erreur au milieu d'une liste.
-                errorBuilder: (_, _, _) => _substitut(),
+                errorBuilder: (c, _, _) => _substitut(c),
               ),
       ),
     );
   }
 
-  Widget _substitut() {
+  Widget _substitut(BuildContext context) {
     final lettre = widget.titre.trim().isEmpty
         ? '?'
         : widget.titre.trim().characters.first.toUpperCase();
     return Container(
-      color: Colors.blueGrey.shade50,
+      color: context.gafeso.infoFond,
       alignment: Alignment.center,
       child: Text(
         lettre,
         style: TextStyle(
           fontSize: widget.hauteur * 0.42,
           fontWeight: FontWeight.w600,
-          color: Colors.blueGrey.shade300,
+          color: context.gafeso.info,
         ),
       ),
     );

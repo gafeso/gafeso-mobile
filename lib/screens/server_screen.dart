@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import '../theme/gafeso_theme.dart';
+
 import '../api/server_discovery.dart';
 import '../app_state.dart';
 import 'qr_scan_screen.dart';
@@ -135,7 +137,7 @@ class _ServerScreenState extends State<ServerScreen> {
               ),
               if (_erreur != null) ...[
                 const SizedBox(height: 12),
-                Text(_erreur!, style: const TextStyle(color: Colors.red)),
+                Text(_erreur!, style: TextStyle(color: context.couleurs.error)),
               ],
               const SizedBox(height: 16),
               FilledButton(

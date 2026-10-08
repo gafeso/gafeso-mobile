@@ -113,7 +113,11 @@ void main() {
       s.circulationInactive();
       expect(s.circulationActive, isFalse);
       // « étagère » et « prêt » n'ont pas de référent sans comptoir.
-      expect(s.titreEtagere, 'Mes documents hors ligne');
+      //
+      // ⚠ COURT, ET MESURÉ : « Mes documents hors ligne » demande 534 dp à la
+      // taille d'un titre de barre et ne tient sur aucun écran de 360 dp, même
+      // sans une seule icône. Le « hors ligne » vit dans le corps de l'écran.
+      expect(s.titreEtagere, 'Mes documents');
     });
 
     test('le refus ne notifie qu’UNE fois — il arrive de trois routes', () {

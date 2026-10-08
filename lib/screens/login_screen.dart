@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import '../theme/gafeso_theme.dart';
+
 /// Écran 2 — **connexion** (email + mot de passe) dans l'école choisie. Le jeton et l'identité
 /// sont ensuite conservés dans une session **chiffrée localement** (clé du keystore), ce qui
 /// permet de lire hors-ligne et alimente le filigrane.
@@ -75,15 +77,15 @@ class _LoginScreenState extends State<LoginScreen> {
                   Container(
                     padding: const EdgeInsets.all(12),
                     decoration: BoxDecoration(
-                      color: Colors.amber.shade50,
+                      color: context.gafeso.avertissementFond,
                       border: Border(
-                        left: BorderSide(color: Colors.amber.shade700, width: 3),
+                        left: BorderSide(color: context.gafeso.avertissement, width: 3),
                       ),
                     ),
                     child: Row(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Icon(Icons.schedule, size: 18, color: Colors.amber.shade900),
+                        Icon(Icons.schedule, size: 18, color: context.gafeso.surAvertissement),
                         const SizedBox(width: 8),
                         Expanded(
                           child: Text(

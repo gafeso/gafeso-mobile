@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import '../theme/gafeso_theme.dart';
+
 import '../cache/offline_cache.dart';
 import 'reader_space_screen.dart';
 import 'library_card_screen.dart';
@@ -180,6 +182,38 @@ class _ShelfScreenState extends State<ShelfScreen> {
     if (mounted) setState(() {});
   }
 
+  void _ouvrirRecherche() => Navigator.of(context).push(MaterialPageRoute(
+        builder: (_) => SearchScreen.from(
+          api: widget.state.api,
+          covers: widget.state.covers,
+          origine: widget.state.origineServeur,
+          openRecord: (ctx, hit) => Navigator.of(ctx).push(MaterialPageRoute(
+            builder: (_) => RecordScreen.from(
+              api: widget.state.api,
+              recordId: hit.id,
+              titleHint: hit.title,
+              covers: widget.state.covers,
+              origine: widget.state.origineServeur,
+              circulation: widget.state.circulationActive,
+            ),
+          )),
+        ),
+      ));
+
+  void _ouvrirCarte() => Navigator.of(context).push(MaterialPageRoute(
+        builder: (_) => SiCirculation(
+          state: widget.state,
+          child: LibraryCardScreen.from(api: widget.state.api, cache: OfflineCache()),
+        ),
+      ));
+
+  void _ouvrirEspace() => Navigator.of(context).push(MaterialPageRoute(
+        builder: (_) => SiCirculation(
+          state: widget.state,
+          child: ReaderSpaceScreen.from(api: widget.state.api, cache: OfflineCache()),
+        ),
+      ));
+
   @override
   Widget build(BuildContext context) {
     // Union : documents autorisés (distant) + déjà téléchargés (local, utile hors-ligne).
@@ -191,89 +225,79 @@ class _ShelfScreenState extends State<ShelfScreen> {
 
     return Scaffold(
       appBar: AppBar(
-        title: Text(widget.state.titreEtagere),
+        // ⚠ RÉDUIRE PLUTÔT QUE ROGNER. Un titre tronqué en « Mon … » ne nomme
+        // plus rien ; un titre légèrement plus petit se lit encore. `scaleDown`
+        // n'agit QUE lorsque la place manque — à taille normale, rien ne bouge —
+        // et il couvre du même geste les écrans étroits et les réglages
+        // d'accessibilité qui grossissent le texte, qu'aucun choix de police
+        // fixe ne peut anticiper.
+        title: FittedBox(
+          fit: BoxFit.scaleDown,
+          alignment: Alignment.centerLeft,
+          child: Text(widget.state.titreEtagere),
+        ),
+        // ⚠ UNE ICÔNE ET UN MENU, PAS SIX. Sur un écran de 360 dp — la largeur de
+        // référence Android, celle des téléphones d'entrée de gamme qui sont
+        // l'essentiel du parc visé — six actions ne laissaient au titre qu'un
+        // « Mon … » tronqué. Un écran dont on ne lit plus le nom ne se situe
+        // plus : c'est la première information de la barre, et elle sautait.
+        //
+        // Reste en clair le seul geste qui part d'ici vers ailleurs à chaque
+        // session : chercher. Tout le reste descend dans le menu, où ces
+        // entrées gagnent d'ailleurs un libellé écrit plutôt qu'une icône à
+        // deviner. « Actualiser » y descend aussi : l'écran se charge seul à
+        // l'ouverture, et le bandeau hors-ligne porte déjà son « Réessayer ».
         actions: [
           IconButton(
-            tooltip: 'À propos',
-            onPressed: () => Navigator.of(context).push(
-              MaterialPageRoute(builder: (_) => const AProposScreen()),
-            ),
-            icon: const Icon(Icons.info_outline),
-          ),
-          // ⚠ CARTE DE LECTEUR ET « MES PRÊTS » N'EXISTENT QUE S'IL Y A UNE
-          // CIRCULATION PHYSIQUE. Une université virtuelle n'a ni comptoir, ni
-          // exemplaire, ni carte à présenter : les afficher promettrait un
-          // service absent, et les routes `/reader/*` refuseraient derrière.
-          //
-          // L'état vient du serveur (`GET /modules`), qui ouvre cette lecture à
-          // tout compte authentifié précisément pour que les clients filtrent
-          // leur menu — « refuser sans cacher laisse une interface qui ment ».
-          //
-          // ⚠ Tant que l'état est inconnu, on montre TOUT : amputer un menu sur
-          // une incertitude est pire qu'une entrée de trop, car l'usager ne sait
-          // pas que quelque chose manque et ne peut pas le réclamer.
-          if (widget.state.circulationActive)
-          IconButton(
-            tooltip: 'Ma carte de lecteur',
-            onPressed: () => Navigator.of(context).push(MaterialPageRoute(
-              builder: (_) => SiCirculation(
-                state: widget.state,
-                child: LibraryCardScreen.from(
-                  api: widget.state.api,
-                  cache: OfflineCache(),
-                ),
-              ),
-            )),
-            icon: const Icon(Icons.badge_outlined),
-          ),
-          IconButton(
             tooltip: 'Rechercher dans le catalogue',
-            onPressed: () => Navigator.of(context).push(MaterialPageRoute(
-              builder: (_) => SearchScreen.from(
-                api: widget.state.api,
-                covers: widget.state.covers,
-                origine: widget.state.origineServeur,
-                openRecord: (ctx, hit) => Navigator.of(ctx).push(MaterialPageRoute(
-                  builder: (_) => RecordScreen.from(
-                    api: widget.state.api,
-                    recordId: hit.id,
-                    titleHint: hit.title,
-                    covers: widget.state.covers,
-                    origine: widget.state.origineServeur,
-                    circulation: widget.state.circulationActive,
-                  ),
-                )),
-              ),
-            )),
+            onPressed: _ouvrirRecherche,
             icon: const Icon(Icons.search),
           ),
-          if (widget.state.circulationActive)
-          IconButton(
-            tooltip: 'Mon espace (prêts et réservations)',
-            onPressed: () => Navigator.of(context).push(MaterialPageRoute(
-              builder: (_) => SiCirculation(
-                state: widget.state,
-                child: ReaderSpaceScreen.from(
-                  api: widget.state.api,
-                  cache: OfflineCache(),
-                ),
-              ),
-            )),
-            icon: const Icon(Icons.assignment_outlined),
-          ),
-          IconButton(
-            tooltip: 'Actualiser',
-            onPressed: _loading ? null : _load,
-            icon: const Icon(Icons.refresh),
-          ),
           PopupMenuButton<String>(
+            tooltip: 'Menu',
             onSelected: (v) async {
-              if (v == 'logout') await widget.state.logout();
-              if (v == 'tenant') await widget.state.changeTenant();
+              switch (v) {
+                case 'actualiser':
+                  if (!_loading) _load();
+                case 'carte':
+                  _ouvrirCarte();
+                case 'espace':
+                  _ouvrirEspace();
+                case 'apropos':
+                  Navigator.of(context).push(
+                    MaterialPageRoute(builder: (_) => const AProposScreen()),
+                  );
+                case 'logout':
+                  await widget.state.logout();
+                case 'tenant':
+                  await widget.state.changeTenant();
+              }
             },
-            itemBuilder: (_) => const [
-              PopupMenuItem(value: 'logout', child: Text('Se déconnecter')),
-              PopupMenuItem(value: 'tenant', child: Text('Changer d’école')),
+            itemBuilder: (_) => [
+              PopupMenuItem(
+                value: 'actualiser',
+                enabled: !_loading,
+                child: const Text('Actualiser'),
+              ),
+              const PopupMenuDivider(),
+              // ⚠ CARTE DE LECTEUR ET « MON ESPACE » N'EXISTENT QUE S'IL Y A UNE
+              // CIRCULATION PHYSIQUE. Une université virtuelle n'a ni comptoir,
+              // ni exemplaire, ni carte à présenter : les afficher promettrait
+              // un service absent, et les routes `/reader/*` refuseraient
+              // derrière.
+              //
+              // ⚠ Tant que l'état est inconnu, on montre TOUT : amputer un menu
+              // sur une incertitude est pire qu'une entrée de trop, car l'usager
+              // ne sait pas que quelque chose manque et ne peut pas le réclamer.
+              if (widget.state.circulationActive) ...[
+                const PopupMenuItem(value: 'carte', child: Text('Ma carte de lecteur')),
+                const PopupMenuItem(value: 'espace', child: Text('Mes prêts et réservations')),
+                const PopupMenuDivider(),
+              ],
+              const PopupMenuItem(value: 'apropos', child: Text('À propos')),
+              const PopupMenuDivider(),
+              const PopupMenuItem(value: 'logout', child: Text('Se déconnecter')),
+              const PopupMenuItem(value: 'tenant', child: Text('Changer d’école')),
             ],
           ),
         ],
@@ -354,7 +378,7 @@ class _ShelfScreenState extends State<ShelfScreen> {
               Icon(
                 _offlineMode ? Icons.cloud_off_outlined : Icons.download_outlined,
                 size: 44,
-                color: Colors.black26,
+                color: context.couleurs.scrim.withValues(alpha: 0.35),
               ),
               const SizedBox(height: 14),
               Text(
@@ -374,7 +398,7 @@ class _ShelfScreenState extends State<ShelfScreen> {
                         'bibliothèque n’a pas encore préparés. Cherchez-y : la fiche '
                         'd’une notice vous dira ce qu’il en est.',
                 textAlign: TextAlign.center,
-                style: const TextStyle(fontSize: 13, color: Colors.black54, height: 1.4),
+                style: TextStyle(fontSize: 13, color: context.gafeso.texteSecondaire, height: 1.4),
               ),
             ],
           ),
@@ -473,13 +497,21 @@ class _DocTile extends StatelessWidget {
     return ListTile(
       leading: Icon(
         icone,
-        color: expiree && downloaded ? Colors.amber.shade800 : null,
+        // L'ORANGE DES PAGES marque ce qui est EMPORTÉ : c'est le geste propre
+        // à ce produit — un document qu'on a sur soi, lisible sans réseau — et
+        // c'est le seul repère qui distingue d'un coup d'œil les lignes déjà
+        // disponibles des lignes à télécharger.
+        color: expiree && downloaded
+            ? context.gafeso.avertissement
+            : downloaded
+                ? GafesoMarque.orange
+                : null,
       ),
       title: Text(title),
       subtitle: Text(
         sousTitre,
         style: expiree && downloaded
-            ? TextStyle(color: Colors.amber.shade900, fontWeight: FontWeight.w500)
+            ? TextStyle(color: context.gafeso.surAvertissement, fontWeight: FontWeight.w500)
             : null,
       ),
       trailing: actions(),

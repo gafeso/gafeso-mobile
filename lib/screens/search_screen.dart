@@ -2,6 +2,8 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 
+import '../theme/gafeso_theme.dart';
+
 import '../api/gafeso_api.dart';
 import '../cache/cover_cache.dart';
 import '../widgets/cover_image.dart';
@@ -272,7 +274,7 @@ class _SearchScreenState extends State<SearchScreen> {
                       p.hasMore
                           ? 'Faites défiler pour voir la suite'
                           : '${p.totalHits} résultat${p.totalHits > 1 ? 's' : ''}',
-                      style: const TextStyle(fontSize: 12, color: Colors.black54),
+                      style: TextStyle(fontSize: 12, color: context.gafeso.texteSecondaire),
                     ),
             ),
           );

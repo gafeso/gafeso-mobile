@@ -2,6 +2,8 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 
+import '../theme/gafeso_theme.dart';
+
 import '../api/gafeso_api.dart';
 import '../cache/offline_cache.dart';
 import '../models/reader_space.dart';
@@ -246,7 +248,7 @@ class _ReaderSpaceScreenState extends State<ReaderSpaceScreen> {
         subtitle: Text(
           p.dueLabelFrom(_maintenant),
           style: TextStyle(
-            color: p.overdue ? Colors.red.shade700 : null,
+            color: p.overdue ? context.couleurs.error : null,
             fontWeight: p.overdue ? FontWeight.bold : null,
           ),
         ),
@@ -272,7 +274,7 @@ class _ReaderSpaceScreenState extends State<ReaderSpaceScreen> {
               subtitle: Text(
                 h.positionLabel,
                 style: TextStyle(
-                  color: h.isReady ? Colors.green.shade800 : null,
+                  color: h.isReady ? context.gafeso.succes : null,
                   fontWeight: h.isReady ? FontWeight.bold : null,
                 ),
               ),
@@ -304,7 +306,7 @@ class _ReaderSpaceScreenState extends State<ReaderSpaceScreen> {
             subtitle: Text(
               'Rendu le ${_jour(h.returnDate)}'
               '${h.returnedLate ? ' · rendu en retard' : ''}',
-              style: TextStyle(color: h.returnedLate ? Colors.orange.shade800 : null),
+              style: TextStyle(color: h.returnedLate ? context.gafeso.avertissement : null),
             ),
           )),
       if (prets.historyTotal > prets.history.length)
@@ -315,7 +317,7 @@ class _ReaderSpaceScreenState extends State<ReaderSpaceScreen> {
             // manquent vaut mieux que laisser croire que c'est tout.
             'Les ${prets.history.length} derniers retours sont affichés '
             'sur ${prets.historyTotal}.',
-            style: const TextStyle(fontSize: 12, color: Colors.black54),
+            style: TextStyle(fontSize: 12, color: context.gafeso.texteSecondaire),
           ),
         ),
     ];
@@ -333,7 +335,7 @@ class _ReaderSpaceScreenState extends State<ReaderSpaceScreen> {
           mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: [
             Text(t, style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-            Text(compte, style: const TextStyle(fontSize: 12, color: Colors.black54)),
+            Text(compte, style: TextStyle(fontSize: 12, color: context.gafeso.texteSecondaire)),
           ],
         ),
       );

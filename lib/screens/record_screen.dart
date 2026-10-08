@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import '../theme/gafeso_theme.dart';
+
 import '../api/gafeso_api.dart';
 import '../cache/cover_cache.dart';
 import '../models/catalog.dart';
@@ -203,7 +205,7 @@ class _RecordScreenState extends State<RecordScreen> {
           const SizedBox(height: 4),
           Text(
             n.titleComplement!,
-            style: const TextStyle(fontSize: 16, color: Colors.black87, height: 1.3),
+            style: TextStyle(fontSize: 16, color: context.couleurs.onSurface, height: 1.3),
           ),
         ],
 
@@ -243,9 +245,9 @@ class _RecordScreenState extends State<RecordScreen> {
           Text('Exemplaires', style: Theme.of(context).textTheme.titleMedium),
         const SizedBox(height: 8),
         if (n.items.isEmpty)
-          const Text(
+          Text(
             'Aucun exemplaire physique pour cette notice.',
-            style: TextStyle(fontSize: 13, color: Colors.black54),
+            style: TextStyle(fontSize: 13, color: context.gafeso.texteSecondaire),
           )
         else
           ...n.items.map((i) => ListTile(
@@ -253,7 +255,7 @@ class _RecordScreenState extends State<RecordScreen> {
                 contentPadding: EdgeInsets.zero,
                 leading: Icon(
                   i.available ? Icons.check_circle_outline : Icons.remove_circle_outline,
-                  color: i.available ? Colors.green.shade700 : Colors.orange.shade800,
+                  color: i.available ? context.gafeso.succes : context.gafeso.avertissement,
                 ),
                 title: Text(i.statusLabel),
                 subtitle: Text(
@@ -267,7 +269,7 @@ class _RecordScreenState extends State<RecordScreen> {
           // Disponible : on n'offre PAS de réserver. Envoyer attendre quelqu'un
           // qui peut emprunter tout de suite serait absurde.
           Card(
-            color: Colors.green.shade50,
+            color: context.gafeso.succesFond,
             child: const ListTile(
               leading: Icon(Icons.check_circle),
               title: Text('Disponible au comptoir'),
@@ -307,7 +309,7 @@ class _RecordScreenState extends State<RecordScreen> {
 
     if (n.aUnEmbargoActif(maintenant)) {
       return Card(
-        color: Colors.amber.shade50,
+        color: context.gafeso.avertissementFond,
         child: ListTile(
           leading: const Icon(Icons.lock_clock_outlined),
           title: const Text('Document sous embargo'),
@@ -321,7 +323,7 @@ class _RecordScreenState extends State<RecordScreen> {
 
     if (n.estTelechargeable(maintenant)) {
       return Card(
-        color: Colors.green.shade50,
+        color: context.gafeso.succesFond,
         child: ListTile(
           leading: const Icon(Icons.download_for_offline_outlined),
           title: const Text('Document numérique disponible'),
@@ -334,7 +336,7 @@ class _RecordScreenState extends State<RecordScreen> {
     }
 
     return Card(
-      color: Colors.blue.shade50,
+      color: context.gafeso.infoFond,
       child: ListTile(
         leading: const Icon(Icons.menu_book_outlined),
         title: Text('Document numérique disponible ($format)'),
@@ -367,15 +369,15 @@ class _RecordScreenState extends State<RecordScreen> {
   Widget _bandeauProvenance(Provenance p) => Container(
         padding: const EdgeInsets.all(12),
         decoration: BoxDecoration(
-          color: Colors.grey.shade100,
-          border: Border(left: BorderSide(color: Colors.blueGrey.shade300, width: 3)),
+          color: context.gafeso.infoFond,
+          border: Border(left: BorderSide(color: context.gafeso.info, width: 3)),
         ),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Row(
               children: [
-                Icon(Icons.hub_outlined, size: 16, color: Colors.blueGrey.shade700),
+                Icon(Icons.hub_outlined, size: 16, color: context.gafeso.surInfo),
                 const SizedBox(width: 6),
                 Expanded(
                   child: Text(
@@ -383,7 +385,7 @@ class _RecordScreenState extends State<RecordScreen> {
                     style: TextStyle(
                       fontSize: 13,
                       fontWeight: FontWeight.w600,
-                      color: Colors.blueGrey.shade800,
+                      color: context.gafeso.surInfo,
                     ),
                   ),
                 ),
@@ -393,13 +395,13 @@ class _RecordScreenState extends State<RecordScreen> {
             Text(
               'Cette notice provient d’un autre établissement ; elle n’a pas été '
               'catalogée ici.',
-              style: TextStyle(fontSize: 12, color: Colors.blueGrey.shade700),
+              style: TextStyle(fontSize: 12, color: context.gafeso.surInfo),
             ),
             if (p.lien != null && p.lien!.isNotEmpty) ...[
               const SizedBox(height: 6),
               SelectableText(
                 p.lien!,
-                style: const TextStyle(fontSize: 12, color: Colors.blue),
+                style: TextStyle(fontSize: 12, color: context.couleurs.primary),
               ),
             ],
           ],
@@ -418,7 +420,7 @@ class _RecordScreenState extends State<RecordScreen> {
     if (n.contributors.isEmpty) {
       return n.author == null
           ? const SizedBox.shrink()
-          : Text(n.author!, style: const TextStyle(fontSize: 16, color: Colors.black87));
+          : Text(n.author!, style: TextStyle(fontSize: 16, color: context.couleurs.onSurface));
     }
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -433,7 +435,9 @@ class _RecordScreenState extends State<RecordScreen> {
                   c.name,
                   style: TextStyle(
                     fontSize: c.estDirection ? 14 : 16,
-                    color: c.estDirection ? Colors.black54 : Colors.black87,
+                    color: c.estDirection
+                        ? context.gafeso.texteSecondaire
+                        : context.couleurs.onSurface,
                   ),
                 ),
                 const SizedBox(width: 8),
@@ -441,7 +445,7 @@ class _RecordScreenState extends State<RecordScreen> {
                   padding: const EdgeInsets.only(top: 2),
                   child: Text(
                     c.roleLisible,
-                    style: TextStyle(fontSize: 11, color: Colors.blueGrey.shade600),
+                    style: TextStyle(fontSize: 11, color: context.gafeso.texteSecondaire),
                   ),
                 ),
               ],
@@ -471,7 +475,7 @@ class _RecordScreenState extends State<RecordScreen> {
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
             decoration: BoxDecoration(
-              color: Colors.blueGrey.shade50,
+              color: context.gafeso.infoFond,
               borderRadius: BorderRadius.circular(4),
             ),
             child: Text(
@@ -479,7 +483,7 @@ class _RecordScreenState extends State<RecordScreen> {
               style: TextStyle(
                 fontSize: 11,
                 fontWeight: FontWeight.w600,
-                color: Colors.blueGrey.shade800,
+                color: context.gafeso.surInfo,
               ),
             ),
           ),
@@ -488,7 +492,7 @@ class _RecordScreenState extends State<RecordScreen> {
         Expanded(
           child: Text(
             parts.join(' · '),
-            style: const TextStyle(fontSize: 13, color: Colors.black54),
+            style: TextStyle(fontSize: 13, color: context.gafeso.texteSecondaire),
           ),
         ),
       ],
@@ -504,13 +508,13 @@ class _RecordScreenState extends State<RecordScreen> {
     return Container(
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
-        color: Colors.indigo.shade50,
+        color: context.gafeso.infoFond,
         borderRadius: BorderRadius.circular(6),
       ),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Icon(Icons.school_outlined, size: 18, color: Colors.indigo.shade700),
+          Icon(Icons.school_outlined, size: 18, color: context.gafeso.surInfo),
           const SizedBox(width: 8),
           Expanded(
             child: Column(
@@ -521,7 +525,7 @@ class _RecordScreenState extends State<RecordScreen> {
                   style: TextStyle(
                     fontSize: 11,
                     fontWeight: FontWeight.w600,
-                    color: Colors.indigo.shade700,
+                    color: context.gafeso.surInfo,
                   ),
                 ),
                 const SizedBox(height: 2),
@@ -543,9 +547,9 @@ class _RecordScreenState extends State<RecordScreen> {
             Container(
               padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
               decoration: BoxDecoration(
-                color: Colors.grey.shade100,
+                color: context.gafeso.infoFond,
                 borderRadius: BorderRadius.circular(12),
-                border: Border.all(color: Colors.grey.shade300),
+                border: Border.all(color: context.couleurs.outlineVariant),
               ),
               child: Text(m, style: const TextStyle(fontSize: 12)),
             ),
@@ -581,7 +585,7 @@ class _RecordScreenState extends State<RecordScreen> {
                   width: 80,
                   child: Text(
                     libelle,
-                    style: const TextStyle(fontSize: 13, color: Colors.black54),
+                    style: TextStyle(fontSize: 13, color: context.gafeso.texteSecondaire),
                   ),
                 ),
                 Expanded(child: Text(valeur, style: const TextStyle(fontSize: 13))),

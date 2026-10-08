@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+
+import '../theme/gafeso_theme.dart';
 import 'package:flutter/services.dart';
 
 /// Écran « À propos » — il sert d'abord à répondre à UNE question :
@@ -52,7 +54,7 @@ class _AProposScreenState extends State<AProposScreen> {
         children: [
           const Text('Gafeso', style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold)),
           const SizedBox(height: 4),
-          const Text('La maison des livres', style: TextStyle(color: Colors.black54)),
+          Text('La maison des livres', style: TextStyle(color: context.gafeso.texteSecondaire)),
           const SizedBox(height: 24),
 
           if (!_charge)
@@ -70,17 +72,17 @@ class _AProposScreenState extends State<AProposScreen> {
               Container(
                 padding: const EdgeInsets.all(12),
                 decoration: BoxDecoration(
-                  color: Colors.red.shade50,
-                  border: Border(left: BorderSide(color: Colors.red.shade700, width: 3)),
+                  color: context.gafeso.erreurFond,
+                  border: Border(left: BorderSide(color: context.couleurs.error, width: 3)),
                 ),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Row(children: [
-                      Icon(Icons.warning_amber_rounded, size: 18, color: Colors.red.shade800),
+                      Icon(Icons.warning_amber_rounded, size: 18, color: context.gafeso.surErreur),
                       const SizedBox(width: 8),
                       Text('Capture d’écran AUTORISÉE',
-                          style: TextStyle(fontWeight: FontWeight.bold, color: Colors.red.shade900)),
+                          style: TextStyle(fontWeight: FontWeight.bold, color: context.gafeso.surErreur)),
                     ]),
                     const SizedBox(height: 6),
                     const Text(
@@ -96,11 +98,11 @@ class _AProposScreenState extends State<AProposScreen> {
               Container(
                 padding: const EdgeInsets.all(12),
                 decoration: BoxDecoration(
-                  color: Colors.green.shade50,
-                  border: Border(left: BorderSide(color: Colors.green.shade700, width: 3)),
+                  color: context.gafeso.succesFond,
+                  border: Border(left: BorderSide(color: context.gafeso.succes, width: 3)),
                 ),
                 child: Row(children: [
-                  Icon(Icons.shield_outlined, size: 18, color: Colors.green.shade800),
+                  Icon(Icons.shield_outlined, size: 18, color: context.gafeso.surSucces),
                   const SizedBox(width: 8),
                   const Expanded(
                     child: Text('Capture d’écran bloquée — version normale.',
@@ -111,10 +113,10 @@ class _AProposScreenState extends State<AProposScreen> {
           ],
 
           const SizedBox(height: 28),
-          const Text(
+          Text(
             'Logiciel libre sous licence AGPL-3.0.\n'
             'Édité par ResurgiTech, Ouagadougou.',
-            style: TextStyle(fontSize: 12, color: Colors.black54, height: 1.5),
+            style: TextStyle(fontSize: 12, color: context.gafeso.texteSecondaire, height: 1.5),
           ),
         ],
       ),
@@ -127,7 +129,7 @@ class _AProposScreenState extends State<AProposScreen> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             SizedBox(width: 90,
-                child: Text(libelle, style: const TextStyle(fontSize: 13, color: Colors.black54))),
+                child: Text(libelle, style: TextStyle(fontSize: 13, color: context.gafeso.texteSecondaire))),
             Expanded(child: SelectableText(valeur, style: const TextStyle(fontSize: 13))),
           ],
         ),

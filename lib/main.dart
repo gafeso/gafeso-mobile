@@ -8,6 +8,7 @@ import 'screens/login_screen.dart';
 import 'screens/shelf_screen.dart';
 import 'screens/server_screen.dart';
 import 'screens/tenant_screen.dart';
+import 'theme/gafeso_theme.dart';
 
 /// URL de l'API FIGÉE au build — désormais OPTIONNELLE.
 ///
@@ -47,10 +48,13 @@ class GafesoApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final theme = ThemeData(colorSchemeSeed: const Color(0xFF0F2B46), useMaterial3: true);
     return MaterialApp(
       title: 'Gafeso',
-      theme: theme,
+      // Identité Gafeso : vert de la maison, orange des pages. Les deux modes
+      // sont fournis ; l'appareil choisit. Voir lib/theme/gafeso_theme.dart —
+      // c'est le SEUL fichier où une couleur est écrite.
+      theme: gafesoClair(),
+      darkTheme: gafesoSombre(),
       debugShowCheckedModeBanner: false,
       home: state == null
           // Cas des tests de widgets : pas d'état injecté → écran d'accueil neutre.
