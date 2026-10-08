@@ -83,6 +83,24 @@ class MainActivity : FlutterActivity() {
                         // imposait en plus un NDK plus récent que celui du projet).
                         "appDir" -> result.success(filesDir.absolutePath)
 
+                        // Identité du build, pour l'écran « À propos ».
+                        //
+                        // ⚠ `capturesAutorisees` est rendu TEL QUEL. Une app qui
+                        // affaiblit une protection doit pouvoir le dire à qui la
+                        // tient en main : sans cela, une capture qui passe ne
+                        // distingue pas un défaut du blocage de la variante
+                        // prévue pour cela — et c'est exactement le doute qui
+                        // s'est posé sur un téléphone réel.
+                        "buildInfo" -> result.success(
+                            mapOf(
+                                "versionName" to BuildConfig.VERSION_NAME,
+                                "versionCode" to BuildConfig.VERSION_CODE,
+                                "debug" to BuildConfig.DEBUG,
+                                "capturesAutorisees" to
+                                    (BuildConfig.DEBUG && BuildConfig.CAPTURES_FICHE),
+                            ),
+                        )
+
                         // Luminosité de l'écran, pour la carte de lecteur.
                         //
                         // Fait ICI plutôt qu'avec un greffon : le canal natif existe

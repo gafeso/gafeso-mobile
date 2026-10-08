@@ -27,7 +27,16 @@ class RecordScreen extends StatefulWidget {
     this.onOpenDigital,
     this.covers,
     this.origine,
+    this.circulation = true,
   });
+
+  /// L'établissement a-t-il une circulation physique ?
+  ///
+  /// ⚠ Par défaut `true` : tant qu'on ne sait pas, on montre tout. Une
+  /// bibliothèque NUMÉRIQUE n'a ni exemplaire ni comptoir — y afficher
+  /// « Aucun exemplaire physique » serait exact et inutile, et un bouton
+  /// « Réserver » promettrait une file d'attente qui n'existe pas.
+  final bool circulation;
 
   /// Cache des couvertures (optionnel : sans lui, substitut, aucun réseau).
   final CoverCache? covers;
@@ -56,6 +65,7 @@ class RecordScreen extends StatefulWidget {
     void Function(BuildContext, RecordDetail)? onOpenDigital,
     CoverCache? covers,
     String? origine,
+    bool circulation = true,
   }) =>
       RecordScreen(
         key: key,
@@ -66,6 +76,7 @@ class RecordScreen extends StatefulWidget {
         onOpenDigital: onOpenDigital,
         covers: covers,
         origine: origine,
+        circulation: circulation,
       );
 
   @override
@@ -227,8 +238,9 @@ class _RecordScreenState extends State<RecordScreen> {
           _carteNumerique(context, n),
         ],
 
-        const SizedBox(height: 20),
-        Text('Exemplaires', style: Theme.of(context).textTheme.titleMedium),
+        if (widget.circulation) ...[
+          const SizedBox(height: 20),
+          Text('Exemplaires', style: Theme.of(context).textTheme.titleMedium),
         const SizedBox(height: 8),
         if (n.items.isEmpty)
           const Text(
@@ -271,6 +283,7 @@ class _RecordScreenState extends State<RecordScreen> {
                 : const Icon(Icons.bookmark_add_outlined),
             label: const Text('Réserver'),
           ),
+        ],
 
         _details(n),
       ],

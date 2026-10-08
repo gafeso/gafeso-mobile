@@ -37,6 +37,22 @@ class GafesoApi {
     if (token != null) onSessionPerdue?.call();
   }
 
+  /// Appelé quand le serveur fait savoir que la CIRCULATION PHYSIQUE n'est pas
+  /// en service dans cet établissement.
+  ///
+  /// ⚠ SECOND SIGNAL, VOLONTAIREMENT INDÉPENDANT DE `GET /modules`. Le premier
+  /// peut manquer — serveur plus ancien que cette route, module déclaré mais
+  /// non desservi, réponse perdue au démarrage — et l'app montre alors TOUT par
+  /// défaut, ce qui est le bon défaut mais laisse « Mes prêts » dans un menu où
+  /// il ne mène qu'à des refus. Le refus lui-même est la source la plus sûre :
+  /// il vient de la route exacte que l'entrée de menu allait ouvrir.
+  ///
+  /// Non restreint aux chemins `/reader/` : c'est le MOTIF qui qualifie, pas le
+  /// chemin. Une future route de circulation ailleurs dirait la même chose, et
+  /// une route hors circulation ne peut pas déclencher ceci sans nommer la
+  /// circulation inactive dans son propre refus.
+  void Function()? onCirculationInactive;
+
   void close() => _client.close(force: true);
 
   Map<String, String> _headers() => {
@@ -52,8 +68,10 @@ class GafesoApi {
     final res = await req.close();
     final text = await res.transform(utf8.decoder).join();
     if (res.statusCode >= 400) {
+      final refus = GafesoApiException(res.statusCode, text, path);
       if (res.statusCode == 401) _sessionPerdue();
-      throw GafesoApiException(res.statusCode, text, path);
+      if (refus.circulationInactive) onCirculationInactive?.call();
+      throw refus;
     }
     if (text.isEmpty) return null;
     try {
@@ -174,6 +192,30 @@ class GafesoApi {
   /// Carte de lecteur. Le serveur la CRÉE si le compte n'en a pas encore —
   /// même point de création que la réservation, jamais un second chemin.
   Future<Object> readerCard() async => (await _send('GET', '/reader/card')) as Object;
+
+  /// Modules ACTIFS de l'établissement.
+  ///
+  /// ⚠ LE SERVEUR OUVRE CETTE ROUTE À TOUT COMPTE AUTHENTIFIÉ, délibérément, et
+  /// son commentaire dit pourquoi : « refuser sans cacher laisse une interface
+  /// qui ment ». Une université virtuelle n'a pas de circulation physique — lui
+  /// montrer « Mes prêts » et une carte de lecteur, c'est promettre un comptoir
+  /// qui n'existe pas, et l'envoyer sur des routes qui refuseront.
+  ///
+  /// En cas d'échec on rend `null` : l'app garde alors son affichage complet.
+  /// ⚠ Ne JAMAIS tout cacher sur une erreur réseau — un établissement qui a bien
+  /// une circulation verrait son menu s'amputer au premier hoquet.
+  Future<Set<String>?> modulesActifs() async {
+    try {
+      final r = await _send('GET', '/modules');
+      if (r is! List) return null;
+      return {
+        for (final m in r)
+          if (m is Map && m['actif'] == true && m['id'] is String) m['id'] as String,
+      };
+    } catch (_) {
+      return null;
+    }
+  }
 
   /// Renouvelle un prêt. Un refus n'est PAS une panne : on le rend comme un
   /// résultat porteur de motif, pas comme une exception. Une exception aurait
@@ -310,6 +352,43 @@ class GafesoApiException implements Exception {
       // Corps non JSON : on n'affiche pas du HTML brut à l'écran.
     }
     return defaut;
+  }
+
+  /// Ce refus dit-il que la CIRCULATION PHYSIQUE n'est pas en service ici ?
+  ///
+  /// Reconnaissance volontairement TOLÉRANTE SUR LA FORME et STRICTE SUR LE
+  /// FOND : la passation backend n'est pas encore livrée, le libellé exact
+  /// (« module circulation inactif ») peut encore bouger, et un client qui
+  /// n'accepterait qu'une chaîne au caractère près retomberait silencieusement
+  /// dans le défaut « on montre tout » — c'est-à-dire dans le menu qui ment.
+  ///
+  /// Strict sur le fond, en revanche : il faut le mot « circulation » ET un mot
+  /// d'inactivité, sur un code de refus de capacité (403/404/501). Une panne,
+  /// un 500, un refus de droits personnels ne doivent JAMAIS être lus comme
+  /// « cet établissement n'a pas de comptoir » : on amputerait le menu d'une
+  /// vraie bibliothèque sur un incident passager.
+  bool get circulationInactive {
+    if (statusCode != 403 && statusCode != 404 && statusCode != 501) return false;
+    final m = _sansAccents(motif(defaut: '').toLowerCase());
+    if (!m.contains('circulation')) return false;
+    const inactivite = [
+      'inactif', 'inactive', 'desactive', 'non active', 'pas active',
+      'indisponible', 'non disponible', 'hors service',
+      'disabled', 'not enabled', 'not active', 'inactif.',
+    ];
+    return inactivite.any(m.contains);
+  }
+
+  /// Pliage des accents — « désactivé » et « desactive » sont le même refus.
+  static String _sansAccents(String s) {
+    const de = 'àâäéèêëîïôöùûüç';
+    const vers = 'aaaeeeeiioouuuc';
+    final b = StringBuffer();
+    for (final c in s.split('')) {
+      final i = de.indexOf(c);
+      b.write(i < 0 ? c : vers[i]);
+    }
+    return b.toString();
   }
 
   @override

@@ -3,6 +3,8 @@ import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 
+import '../api/gafeso_api.dart';
+
 /// Socle « hors ligne par défaut » : chaque écran s'affiche depuis la dernière
 /// synchronisation, avec un indicateur de fraîcheur.
 ///
@@ -173,6 +175,12 @@ Future<Cached<T>> loadCached<T>({
     await cache.write(resource, toJson(frais), maintenant);
     return Cached<T>(value: frais, syncedAt: maintenant);
   } catch (e) {
+    // ⚠ UN MODULE ABSENT N'EST PAS UNE PANNE, ET NE S'AFFICHE PAS COMME TELLE.
+    // Quand le serveur refuse en disant que la circulation n'est pas en
+    // service, l'écran concerné est en train de disparaître du menu : y coller
+    // « Mise à jour impossible » ferait clignoter une erreur pour annoncer un
+    // service qui n'existe pas ici. On rend le cache tel quel, sans erreur.
+    if (e is GafesoApiException && e.circulationInactive) return enCache;
     // ON NE TOUCHE PAS AU CACHE. Voir l'en-tête : ne pas savoir n'est pas
     // savoir que non.
     return enCache.withError(_message(e));

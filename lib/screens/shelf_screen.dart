@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../cache/offline_cache.dart';
 import 'reader_space_screen.dart';
 import 'library_card_screen.dart';
+import 'a_propos_screen.dart';
 import 'record_screen.dart';
 import 'search_screen.dart';
 
@@ -190,14 +191,37 @@ class _ShelfScreenState extends State<ShelfScreen> {
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Mon étagère'),
+        title: Text(widget.state.titreEtagere),
         actions: [
+          IconButton(
+            tooltip: 'À propos',
+            onPressed: () => Navigator.of(context).push(
+              MaterialPageRoute(builder: (_) => const AProposScreen()),
+            ),
+            icon: const Icon(Icons.info_outline),
+          ),
+          // ⚠ CARTE DE LECTEUR ET « MES PRÊTS » N'EXISTENT QUE S'IL Y A UNE
+          // CIRCULATION PHYSIQUE. Une université virtuelle n'a ni comptoir, ni
+          // exemplaire, ni carte à présenter : les afficher promettrait un
+          // service absent, et les routes `/reader/*` refuseraient derrière.
+          //
+          // L'état vient du serveur (`GET /modules`), qui ouvre cette lecture à
+          // tout compte authentifié précisément pour que les clients filtrent
+          // leur menu — « refuser sans cacher laisse une interface qui ment ».
+          //
+          // ⚠ Tant que l'état est inconnu, on montre TOUT : amputer un menu sur
+          // une incertitude est pire qu'une entrée de trop, car l'usager ne sait
+          // pas que quelque chose manque et ne peut pas le réclamer.
+          if (widget.state.circulationActive)
           IconButton(
             tooltip: 'Ma carte de lecteur',
             onPressed: () => Navigator.of(context).push(MaterialPageRoute(
-              builder: (_) => LibraryCardScreen.from(
-                api: widget.state.api,
-                cache: OfflineCache(),
+              builder: (_) => SiCirculation(
+                state: widget.state,
+                child: LibraryCardScreen.from(
+                  api: widget.state.api,
+                  cache: OfflineCache(),
+                ),
               ),
             )),
             icon: const Icon(Icons.badge_outlined),
@@ -216,18 +240,23 @@ class _ShelfScreenState extends State<ShelfScreen> {
                     titleHint: hit.title,
                     covers: widget.state.covers,
                     origine: widget.state.origineServeur,
+                    circulation: widget.state.circulationActive,
                   ),
                 )),
               ),
             )),
             icon: const Icon(Icons.search),
           ),
+          if (widget.state.circulationActive)
           IconButton(
             tooltip: 'Mon espace (prêts et réservations)',
             onPressed: () => Navigator.of(context).push(MaterialPageRoute(
-              builder: (_) => ReaderSpaceScreen.from(
-                api: widget.state.api,
-                cache: OfflineCache(),
+              builder: (_) => SiCirculation(
+                state: widget.state,
+                child: ReaderSpaceScreen.from(
+                  api: widget.state.api,
+                  cache: OfflineCache(),
+                ),
               ),
             )),
             icon: const Icon(Icons.assignment_outlined),
@@ -461,4 +490,48 @@ class _DocTile extends StatelessWidget {
               : onOpen,
     );
   }
+}
+
+/// Referme l'écran qu'il enveloppe dès que la circulation se révèle inactive.
+///
+/// ⚠ LE REFUS ARRIVE DE LA REQUÊTE QUE CET ÉCRAN VIENT DE FAIRE. Retirer
+/// l'entrée du menu ne suffit donc pas : l'écran est déjà ouvert, et resterait
+/// affiché, vide, à promettre des prêts qui n'existent pas ici. On le retire,
+/// sans message — il n'y a pas d'échec à annoncer, seulement un service qui
+/// n'est pas rendu dans cet établissement.
+class SiCirculation extends StatefulWidget {
+  const SiCirculation({super.key, required this.state, required this.child});
+
+  final AppState state;
+  final Widget child;
+
+  @override
+  State<SiCirculation> createState() => _SiCirculationState();
+}
+
+class _SiCirculationState extends State<SiCirculation> {
+  @override
+  void initState() {
+    super.initState();
+    widget.state.addListener(_verifier);
+  }
+
+  @override
+  void dispose() {
+    widget.state.removeListener(_verifier);
+    super.dispose();
+  }
+
+  void _verifier() {
+    if (widget.state.circulationActive) return;
+    // Après la frame : on ne dépile pas pendant que l'arbre se reconstruit.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      final nav = Navigator.of(context);
+      if (nav.canPop()) nav.pop();
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) => widget.child;
 }

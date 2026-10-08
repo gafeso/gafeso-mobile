@@ -253,11 +253,22 @@ android {
     // la lève — et il vaut `false` partout sauf si on le demande explicitement :
     //   flutter build apk --debug --dart-define=GAFESO_CAPTURES_FICHE=true
     defaultConfig {
-        buildConfigField(
-            "boolean",
-            "CAPTURES_FICHE",
-            (project.findProperty("captures") as String? ?: "false").toBoolean().toString(),
-        )
+        val capturesDemandees = (project.findProperty("captures") as String? ?: "false").toBoolean()
+        buildConfigField("boolean", "CAPTURES_FICHE", capturesDemandees.toString())
+
+        // ⚠ UN BUILD QUI AFFAIBLIT UNE PROTECTION DOIT LE DIRE, DANS SON NOM.
+        //
+        // Les deux variantes portaient le MÊME `versionName` : rien, ni dans
+        // l'app ni dans `dumpsys`, ne permettait de savoir laquelle était
+        // installée. Un téléphone laissait donc passer les captures sans qu'on
+        // puisse dire si c'était un défaut du blocage ou la variante prévue
+        // pour cela — et c'est exactement la question qui s'est posée.
+        //
+        // Le suffixe est porté par le versionName, donc visible partout :
+        // à l'écran « À propos », dans les réglages Android, dans `dumpsys`.
+        if (capturesDemandees) {
+            versionNameSuffix = "+CAPTURES-NON-DISTRIBUABLE"
+        }
     }
 
     compileOptions {

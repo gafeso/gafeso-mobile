@@ -49,6 +49,46 @@ class AppState extends ChangeNotifier {
   /// Effacé dès qu'une connexion réussit.
   String? sessionNotice;
 
+  /// Modules actifs de l'établissement, `null` tant qu'on ne sait pas.
+  ///
+  /// ⚠ `null` ≠ « aucun module ». Tant que la réponse n'est pas là (ou qu'elle a
+  /// échoué), l'app montre TOUT : amputer un menu sur une incertitude est pire
+  /// que de montrer une entrée de trop, parce que l'usager ne sait pas qu'il
+  /// manque quelque chose et ne peut pas le demander.
+  Set<String>? modulesActifs;
+
+  /// La circulation physique est-elle en service ici ?
+  ///
+  /// Une université virtuelle n'a ni comptoir, ni exemplaire, ni carte à
+  /// présenter. Lui afficher « Mes prêts » promettrait un service absent.
+  /// Le serveur a REFUSÉ une route de circulation en disant que le module est
+  /// inactif. Signal plus sûr que `GET /modules` : il vient de la route même
+  /// que l'entrée de menu allait ouvrir. Une fois posé, il ne se relève qu'au
+  /// changement d'école ou de session — un établissement ne rouvre pas un
+  /// comptoir pendant qu'on consulte son étagère.
+  bool circulationRefusee = false;
+
+  bool get circulationActive =>
+      !circulationRefusee &&
+      (modulesActifs == null || modulesActifs!.contains('circulation'));
+
+  /// Titre de l'étagère.
+  ///
+  /// Sans circulation physique, « étagère » et « prêt » n'ont pas de référent :
+  /// l'usager ne reçoit rien au comptoir, il consulte des documents que son
+  /// établissement lui ouvre. Le mot doit le dire.
+  String get titreEtagere =>
+      circulationActive ? 'Mon étagère' : 'Mes documents hors ligne';
+
+  /// Prend acte du refus. Silencieux par construction : l'absence d'un module
+  /// n'est pas une panne, et il n'y a RIEN à annoncer à l'usager — on retire
+  /// une promesse qu'on n'aurait pas dû faire, on ne lui signale pas un échec.
+  void circulationInactive() {
+    if (circulationRefusee) return;
+    circulationRefusee = true;
+    notifyListeners();
+  }
+
   /// Cache disque des couvertures. Créé une fois : il survit aux écrans, c'est
   /// tout son intérêt (une vignette vue hier s'affiche hors ligne aujourd'hui).
   late final CoverCache covers = CoverCache(dossier: storageDir);
@@ -81,6 +121,7 @@ class AppState extends ChangeNotifier {
     if (session != null) {
       tenantSlug = session!.tenantSlug;
       _wire(session!.tenantSlug, token: session!.token);
+      unawaited(_chargerModules());
       stage = AppStage.shelf;
     } else if (tenantSlug != null) {
       _wire(tenantSlug!);
@@ -105,7 +146,17 @@ class AppState extends ChangeNotifier {
     // Le client détecte la perte de session (401, ou `membersOnly` sur un 200) ;
     // l'état applicatif en tire la conséquence, une seule fois.
     _api!.onSessionPerdue = () => unawaited(sessionExpiree());
+    _api!.onCirculationInactive = circulationInactive;
     _offline = OfflineService(api: _api!, storageDir: storageDir);
+  }
+
+  /// Demande l'état des modules et rafraîchit l'affichage s'il a changé.
+  /// Silencieux : l'app est utilisable avant la réponse, et sans elle.
+  Future<void> _chargerModules() async {
+    final m = await _api?.modulesActifs();
+    if (m == null) return;
+    modulesActifs = m;
+    notifyListeners();
   }
 
   /// SESSION PERDUE — le jeton ne vaut plus rien, et on le DIT.
@@ -181,6 +232,9 @@ class AppState extends ChangeNotifier {
           session = s;
           _wire(s.tenantSlug, token: s.token);
           sessionNotice = null;
+          // L'état des modules conditionne le menu : on le demande une fois,
+          // juste après la connexion, sans bloquer l'entrée dans l'app.
+          unawaited(_chargerModules());
           stage = AppStage.shelf;
           notifyListeners();
           return null;
@@ -198,6 +252,8 @@ class AppState extends ChangeNotifier {
   Future<void> logout() async {
     await _offline?.purgeEverything();
     await covers.vider();
+    modulesActifs = null;
+    circulationRefusee = false;
     await sessions.clearSession();
     session = null;
     _wire(tenantSlug!);
@@ -210,6 +266,8 @@ class AppState extends ChangeNotifier {
     await _offline?.purgeEverything();
     // ⚠ Les couvertures d'une école n'ont rien à faire dans une autre.
     await covers.vider();
+    modulesActifs = null;
+    circulationRefusee = false;
     await sessions.clearAll();
     session = null;
     tenantSlug = null;

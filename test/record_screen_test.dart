@@ -73,6 +73,20 @@ void main() {
     noticeJson = notice(items: [exemplaire('AVAILABLE')]);
   });
 
+  /// Monte la fiche avec ou sans circulation physique.
+  Future<void> monterAvec(WidgetTester tester, {required bool circulation}) async {
+    await tester.pumpWidget(MaterialApp(
+      home: RecordScreen(
+        recordId: 'bdefba53-70ee-4214-b83f-a4cc7f6bde75',
+        titleHint: 'Droit constitutionnel burkinabè',
+        circulation: circulation,
+        fetchRecord: (id) async => jsonDecode(noticeJson) as Object,
+        placeHold: (id) async => RenewResult(ok: true),
+      ),
+    ));
+    await tester.pumpAndSettle();
+  }
+
   Future<void> monter(WidgetTester tester) async {
     await tester.pumpWidget(MaterialApp(
       home: RecordScreen(
@@ -385,6 +399,55 @@ void main() {
       await monter(tester);
 
       expect(find.text('Disponible au comptoir'), findsOneWidget);
+    });
+  });
+
+
+  group('⚠ bibliothèque NUMÉRIQUE — rien ne promet un comptoir', () {
+    testWidgets('sans circulation : ni exemplaires, ni réservation',
+        (tester) async {
+      // Une université virtuelle n'a ni comptoir ni exemplaire. « Aucun
+      // exemplaire physique » y serait exact et inutile, et « Réserver »
+      // promettrait une file d'attente qui n'existe pas.
+      noticeJson = notice(items: [exemplaire('CHECKED_OUT')]);
+      await monterAvec(tester, circulation: false);
+
+      expect(find.text('Exemplaires'), findsNothing);
+      expect(find.textContaining('exemplaire physique'), findsNothing);
+      expect(find.text('Réserver'), findsNothing);
+      expect(find.text('Disponible au comptoir'), findsNothing);
+    });
+
+    testWidgets('⚠ mais les MÉTADONNÉES restent entières', (tester) async {
+      // On retire une promesse de service, pas le contenu du catalogue.
+      noticeJson = notice(
+        recordType: 'these',
+        defenseUniversity: 'Université de Tamaro',
+        keywords: ['droit constitutionnel'],
+      );
+      await monterAvec(tester, circulation: false);
+
+      // Le titre paraît deux fois : barre de l'écran et corps de la fiche.
+      expect(find.text('Droit constitutionnel burkinabè'), findsWidgets);
+      expect(find.textContaining('Université de Tamaro'), findsOneWidget);
+      expect(find.text('droit constitutionnel'), findsOneWidget);
+    });
+
+    testWidgets('avec circulation : tout reste affiché', (tester) async {
+      noticeJson = notice(items: [exemplaire('AVAILABLE')]);
+      await monterAvec(tester, circulation: true);
+
+      expect(find.text('Exemplaires'), findsOneWidget);
+      expect(find.text('Disponible au comptoir'), findsOneWidget);
+    });
+
+    testWidgets('⚠ par DÉFAUT on montre tout — l’incertitude n’ampute pas',
+        (tester) async {
+      // Tant que l'état des modules est inconnu, cacher serait pire : l'usager
+      // ne saurait pas qu'il manque quelque chose et ne pourrait pas le demander.
+      noticeJson = notice(items: [exemplaire('AVAILABLE')]);
+      await monter(tester); // sans passer `circulation`
+      expect(find.text('Exemplaires'), findsOneWidget);
     });
   });
 

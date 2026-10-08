@@ -1,6 +1,6 @@
 # Politique de confidentialité — Gafeso Mobile
 
-**Dernière mise à jour : 22 septembre 2026** · Version de l'application : 1.0.0
+**Dernière mise à jour : 8 octobre 2026** · Version de l'application : 1.0.0-rc1
 **Éditeur : ResurgiTech SARL**, Ouagadougou, Burkina Faso
 **Contact : security@gafeso.org**
 
