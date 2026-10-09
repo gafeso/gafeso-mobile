@@ -33,6 +33,7 @@ class SearchScreen extends StatefulWidget {
     required this.openRecord,
     this.covers,
     this.origine,
+    this.explorer,
   });
 
   /// Cache des couvertures. Optionnel : sans lui, la liste affiche les
@@ -45,6 +46,11 @@ class SearchScreen extends StatefulWidget {
   final Future<Object> Function(String q, int page, String? recordType) search;
   final void Function(BuildContext context, SearchHit hit) openRecord;
 
+  /// Exploration par domaine. `null` = pas d'exploration (tests, ou serveur qui
+  /// ne la sert pas) : l'écran garde alors son invitation, il ne montre pas un
+  /// bloc vide.
+  final Future<Object> Function(String? category, int limit)? explorer;
+
   static SearchScreen from({
     Key? key,
     required GafesoApi api,
@@ -55,6 +61,7 @@ class SearchScreen extends StatefulWidget {
       SearchScreen(
         key: key,
         search: (q, page, type) => api.searchCatalog(q, page: page, recordType: type),
+        explorer: (cat, limit) => api.searchCatalog('', limit: limit, category: cat),
         openRecord: openRecord,
         covers: covers,
         origine: origine,
@@ -72,6 +79,15 @@ class _SearchScreenState extends State<SearchScreen> {
   Timer? _minuterie;
 
   SearchPage? _page;
+
+  /// Carrousels d'exploration : domaine → premières notices. Chargés UNE fois
+  /// par ouverture de l'écran et gardés en mémoire — refaire les requêtes à
+  /// chaque retour de fiche ferait payer plusieurs fois la même page.
+  final Map<String, List<SearchHit>> _parDomaine = {};
+  List<String> _domaines = [];
+  bool _explorationChargee = false;
+  bool _explorationEnCours = false;
+
   bool _chargement = false;
   bool _chargeSuite = false;
   String? _erreur;
@@ -175,6 +191,150 @@ class _SearchScreenState extends State<SearchScreen> {
     return 'autre';
   }
 
+  /// Charge l'exploration : un échantillon pour connaître les domaines du
+  /// fonds, puis les premières notices de chacun.
+  ///
+  /// ⚠ LES DOMAINES NE SONT PAS CODÉS EN DUR. Chaque établissement catalogue
+  /// comme il veut ; une liste écrite dans l'app serait juste pour celui sur
+  /// lequel on l'a écrite et fausse pour tous les autres. On les DÉDUIT d'un
+  /// échantillon, par fréquence.
+  ///
+  /// ⚠ ET ON BORNE : un échantillon, puis quatre domaines. Explorer coûte des
+  /// requêtes, et un étudiant paie ses mégaoctets — ouvrir la recherche ne doit
+  /// pas déclencher une rafale.
+  Future<void> _chargerExploration() async {
+    final explorer = widget.explorer;
+    if (explorer == null || _explorationChargee || _explorationEnCours) return;
+    _explorationEnCours = true;
+    try {
+      final echantillon = SearchPage.fromJson(await explorer(null, 40));
+      final compte = <String, int>{};
+      for (final h in echantillon.hits) {
+        final c = (h.category ?? '').trim();
+        if (c.isNotEmpty) compte[c] = (compte[c] ?? 0) + 1;
+      }
+      final ordre = compte.keys.toList()
+        ..sort((a, b) => compte[b]!.compareTo(compte[a]!));
+      _domaines = ordre.take(4).toList();
+      for (final d in _domaines) {
+        try {
+          _parDomaine[d] = SearchPage.fromJson(await explorer(d, 10)).hits;
+        } catch (_) {
+          // Un domaine qui échoue ne fait pas tomber les autres : son
+          // carrousel n'apparaît pas, le reste de l'écran tient.
+        }
+      }
+      _explorationChargee = true;
+    } catch (_) {
+      // Hors ligne, ou serveur qui ne sait pas explorer : on retombera sur
+      // l'invitation, jamais sur un écran en erreur — on venait chercher un
+      // livre, pas un diagnostic réseau.
+      _explorationChargee = true;
+    } finally {
+      _explorationEnCours = false;
+      if (mounted) setState(() {});
+    }
+  }
+
+  /// Les carrousels, un par domaine, avec « Tout voir ».
+  Widget _exploration() {
+    if (!_explorationChargee) {
+      // Première ouverture : on lance le chargement sans bloquer la frame.
+      WidgetsBinding.instance.addPostFrameCallback((_) => _chargerExploration());
+      return const Center(child: CircularProgressIndicator());
+    }
+    final utiles = _domaines.where((d) => (_parDomaine[d] ?? []).isNotEmpty).toList();
+    if (utiles.isEmpty) {
+      return const EmptyState(
+        icon: Icons.menu_book_outlined,
+        title: 'Que cherchez-vous ?',
+        message: 'Tapez un titre, un auteur ou un sujet. '
+            'Les accents ne sont pas obligatoires.',
+      );
+    }
+    return ListView(
+      padding: const EdgeInsets.only(bottom: 24),
+      children: [
+        for (final d in utiles) _carrousel(d, _parDomaine[d]!),
+      ],
+    );
+  }
+
+  Widget _carrousel(String domaine, List<SearchHit> hits) => Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 18, 8, 8),
+            child: Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    // Le domaine tel que l'établissement l'écrit, première
+                    // lettre en capitale — on ne le traduit pas, on ne le
+                    // reformule pas.
+                    domaine[0].toUpperCase() + domaine.substring(1),
+                    style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w700),
+                  ),
+                ),
+                TextButton(
+                  onPressed: () {
+                    // « Tout voir » = la recherche filtrée sur ce domaine. Pas
+                    // un second écran à tenir : le même, avec son filtre.
+                    _controleur.text = domaine;
+                    _chercher(domaine, force: true);
+                  },
+                  child: const Text('Tout voir'),
+                ),
+              ],
+            ),
+          ),
+          SizedBox(
+            height: 186,
+            child: ListView.separated(
+              scrollDirection: Axis.horizontal,
+              padding: const EdgeInsets.symmetric(horizontal: 16),
+              itemCount: hits.length,
+              separatorBuilder: (_, _) => const SizedBox(width: 12),
+              itemBuilder: (_, i) {
+                final h = hits[i];
+                return SizedBox(
+                  width: 104,
+                  child: InkWell(
+                    onTap: () => widget.openRecord(context, h),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        ClipRRect(
+                          borderRadius: BorderRadius.circular(4),
+                          child: CoverImage(
+                            coverUrl: h.coverUrl,
+                            titre: h.title,
+                            auteur: h.author,
+                            annee: h.publishYear,
+                            domaine: h.category,
+                            cache: widget.covers,
+                            origine: widget.origine,
+                            largeur: 104,
+                            hauteur: 146,
+                          ),
+                        ),
+                        const SizedBox(height: 6),
+                        Text(
+                          h.title,
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(fontSize: 11, height: 1.2),
+                        ),
+                      ],
+                    ),
+                  ),
+                );
+              },
+            ),
+          ),
+        ],
+      );
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -244,6 +404,11 @@ class _SearchScreenState extends State<SearchScreen> {
 
     final p = _page;
     if (p == null) {
+      // ⚠ UN CHAMP VIDE N'EST PAS UNE INVITATION SUFFISANTE. « Que cherchez-vous ? »
+      // suppose qu'on sache déjà quoi demander — or on vient souvent voir ce
+      // qu'il y a. Quand le serveur sait explorer, on MONTRE le fonds ; sinon
+      // on garde l'invitation plutôt qu'un bloc vide.
+      if (widget.explorer != null) return _exploration();
       return const EmptyState(
         icon: Icons.menu_book_outlined,
         title: 'Que cherchez-vous ?',
@@ -284,6 +449,11 @@ class _SearchScreenState extends State<SearchScreen> {
           leading: CoverImage(
             coverUrl: h.coverUrl,
             titre: h.title,
+            // Dans une liste, la couverture est SEULE à identifier : elle garde
+            // son auteur, et sa teinte dit le domaine d'un coup d'œil.
+            auteur: h.author,
+            annee: h.publishYear,
+            domaine: h.category,
             cache: widget.covers,
             origine: widget.origine,
           ),

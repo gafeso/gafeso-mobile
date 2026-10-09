@@ -7,6 +7,7 @@ import 'api/gafeso_api.dart';
 import 'cache/cover_cache.dart';
 import 'api/server_discovery.dart';
 import 'api/offline_service.dart';
+import 'session/progress_store.dart';
 import 'session/session.dart';
 
 /// Étape du parcours MVP : école → connexion → étagère.
@@ -94,6 +95,12 @@ class AppState extends ChangeNotifier {
     circulationRefusee = true;
     notifyListeners();
   }
+
+  /// Progression de lecture — **locale à l'appareil**, jamais envoyée.
+  /// Voir `ProgressStore` : savoir où quelqu'un en est de sa lecture est une
+  /// information intime, et le service rendu ne demande pas qu'un serveur la
+  /// connaisse.
+  final ProgressStore progression = ProgressStore();
 
   /// Cache disque des couvertures. Créé une fois : il survit aux écrans, c'est
   /// tout son intérêt (une vignette vue hier s'affiche hors ligne aujourd'hui).

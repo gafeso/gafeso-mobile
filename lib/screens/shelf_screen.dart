@@ -12,6 +12,8 @@ import 'search_screen.dart';
 import '../api/gafeso_api.dart';
 import '../app_state.dart';
 import '../session/library_store.dart';
+import '../session/progress_store.dart';
+import '../widgets/couverture_generee.dart';
 import 'reader_screen.dart';
 
 /// Écran 3 — **« Mon étagère »**. Liste les documents autorisés
@@ -34,9 +36,17 @@ class _ShelfScreenState extends State<ShelfScreen> {
   List<ShelfDocument> _remote = [];
   Map<String, LocalDocument> _local = {};
   final _busy = <String>{};
+  Map<String, Progression> _progression = {};
   bool _loading = true;
   bool _offlineMode = false;
   String? _notice;
+
+  /// Filtres et tri de l'étagère — en mémoire d'écran, délibérément.
+  /// Un filtre qui survit à la fermeture de l'app fait rouvrir une étagère
+  /// amputée sans qu'on sache pourquoi ; celui-ci se remet à zéro tout seul.
+  _EtatFiltre _filtreEtat = _EtatFiltre.tous;
+  bool _surCetAppareil = false;
+  _Tri _tri = _Tri.ajoutRecent;
 
   @override
   void initState() {
@@ -94,6 +104,7 @@ class _ShelfScreenState extends State<ShelfScreen> {
       _remote = [];
     }
     _local = await widget.state.offline.library.readAll();
+    _progression = await widget.state.progression.readAll();
 
     if (mounted) setState(() => _loading = false);
   }
@@ -144,9 +155,26 @@ class _ShelfScreenState extends State<ShelfScreen> {
       _local = await widget.state.offline.library.readAll();
       return;
     }
+    // ⚠ Reprise à la dernière page LUE SUR CET APPAREIL. La valeur vient du
+    // coffre local ; elle n'a jamais été demandée au serveur et ne lui a jamais
+    // été envoyée.
+    final reprise = (await widget.state.progression.readAll())[docId];
+    if (!mounted) return;
     await Navigator.of(context).push(
-      MaterialPageRoute(builder: (_) => ReaderScreen(title: title, params: params)),
+      MaterialPageRoute(
+        builder: (_) => ReaderScreen(
+          title: title,
+          params: params,
+          docId: docId,
+          progression: widget.state.progression,
+          pageDepart: reprise?.page ?? 0,
+        ),
+      ),
     );
+    // Au retour du lecteur, l'étagère doit montrer la nouvelle progression.
+    if (!mounted) return;
+    final maj = await widget.state.progression.readAll();
+    if (mounted) setState(() => _progression = maj);
   }
 
   /// RENOUVELLEMENT d'un bail expiré.
@@ -195,6 +223,10 @@ class _ShelfScreenState extends State<ShelfScreen> {
               covers: widget.state.covers,
               origine: widget.state.origineServeur,
               circulation: widget.state.circulationActive,
+              // Ce que l'APPAREIL sait déjà : inutile de le redemander au
+              // serveur, et cela marche hors ligne.
+              estLocal: _local.containsKey(hit.id),
+              progression: _progression[hit.id],
             ),
           )),
         ),
@@ -217,11 +249,13 @@ class _ShelfScreenState extends State<ShelfScreen> {
   @override
   Widget build(BuildContext context) {
     // Union : documents autorisés (distant) + déjà téléchargés (local, utile hors-ligne).
-    final ids = <String>{..._remote.map((d) => d.docId), ..._local.keys};
+    final tous = <String>{..._remote.map((d) => d.docId), ..._local.keys};
     final titles = <String, String>{
       for (final d in _remote) d.docId: d.title,
       for (final e in _local.entries) e.key: e.value.title,
     };
+    final ids = _trier(_filtrer(tous, titles), titles);
+    final enCours = _lecturesEnCours();
 
     return Scaffold(
       appBar: AppBar(
@@ -255,8 +289,17 @@ class _ShelfScreenState extends State<ShelfScreen> {
           ),
           PopupMenuButton<String>(
             tooltip: 'Menu',
+            // ⚠ LE FILTRE ACTIF SE VOIT, MÊME MENU FERMÉ. Une étagère amputée
+            // par un filtre est indiscernable d'une étagère vide, et c'est le
+            // genre de doute qui fait conclure à une panne. L'icône change ;
+            // elle ne prend pas de place en plus, ce qui compte — la barre a
+            // DEUX emplacements, mesurés, et c'est ce budget qui garde le titre
+            // entier sur 360 dp (voir test/barre_etagere_test.dart).
+            icon: Icon(_filtreActif ? Icons.filter_alt : Icons.more_vert),
             onSelected: (v) async {
               switch (v) {
+                case 'filtrer':
+                  _ouvrirFiltres();
                 case 'actualiser':
                   if (!_loading) _load();
                 case 'carte':
@@ -274,6 +317,10 @@ class _ShelfScreenState extends State<ShelfScreen> {
               }
             },
             itemBuilder: (_) => [
+              PopupMenuItem(
+                value: 'filtrer',
+                child: Text(_filtreActif ? 'Filtrer et trier ·' : 'Filtrer et trier'),
+              ),
               PopupMenuItem(
                 value: 'actualiser',
                 enabled: !_loading,
@@ -324,12 +371,23 @@ class _ShelfScreenState extends State<ShelfScreen> {
                     ],
                   ),
                 Expanded(
-                  child: ids.isEmpty
+                  child: ids.isEmpty && enCours.isEmpty
                       ? _etagereVide()
                       : RefreshIndicator(
                           onRefresh: _load,
                           child: ListView(
                             children: [
+                              _compteurs(),
+                              if (enCours.isNotEmpty) _sectionEnCours(enCours, titles),
+                              if (ids.isEmpty)
+                                Padding(
+                                  padding: const EdgeInsets.all(32),
+                                  child: Text(
+                                    'Aucun document ne correspond à ce filtre.',
+                                    textAlign: TextAlign.center,
+                                    style: TextStyle(color: context.gafeso.texteSecondaire),
+                                  ),
+                                ),
                               for (final id in ids)
                                 _DocTile(
                                   title: titles[id] ?? id,
@@ -354,6 +412,258 @@ class _ShelfScreenState extends State<ShelfScreen> {
                 ),
               ],
             ),
+    );
+  }
+
+  // ── Filtres, tri, compteurs ───────────────────────────────────────────────
+
+  /// Un filtre est-il posé ? Sert à le SIGNALER, pas à le décorer.
+  bool get _filtreActif =>
+      _filtreEtat != _EtatFiltre.tous || _surCetAppareil || _tri != _Tri.ajoutRecent;
+
+  /// Dans quel état de lecture est ce document ?
+  ///
+  /// ⚠ « Non commencé » n'est PAS « jamais ouvert par personne » : c'est
+  /// « aucune progression sur CET appareil ». L'app ne sait rien des autres
+  /// appareils, et ne doit pas laisser croire le contraire.
+  _EtatFiltre _etatDe(String id) {
+    final p = _progression[id];
+    if (p == null) return _EtatFiltre.nonCommence;
+    return p.termine ? _EtatFiltre.termine : _EtatFiltre.enCours;
+  }
+
+  List<String> _filtrer(Set<String> ids, Map<String, String> titles) => ids.where((id) {
+        if (_surCetAppareil && !_local.containsKey(id)) return false;
+        if (_filtreEtat != _EtatFiltre.tous && _etatDe(id) != _filtreEtat) return false;
+        return true;
+      }).toList();
+
+  List<String> _trier(List<String> ids, Map<String, String> titles) {
+    final l = [...ids];
+    switch (_tri) {
+      case _Tri.titre:
+        l.sort((a, b) => (titles[a] ?? '').toLowerCase().compareTo((titles[b] ?? '').toLowerCase()));
+      case _Tri.auteur:
+        // ⚠ Les documents SANS auteur connu vont à la fin, pas en tête : une
+        // chaîne vide trie avant tout le reste et mettrait les inconnus devant.
+        l.sort((a, b) {
+          final x = _local[a]?.auteur, y = _local[b]?.auteur;
+          if (x == null && y == null) return 0;
+          if (x == null) return 1;
+          if (y == null) return -1;
+          return x.toLowerCase().compareTo(y.toLowerCase());
+        });
+      case _Tri.ajoutRecent:
+        // L'ordre rendu par le serveur, les documents locaux d'abord : c'est
+        // l'ordre « ce que j'ai sous la main », celui qu'on veut par défaut.
+        l.sort((a, b) {
+          final la = _local.containsKey(a) ? 0 : 1;
+          final lb = _local.containsKey(b) ? 0 : 1;
+          return la.compareTo(lb);
+        });
+    }
+    return l;
+  }
+
+  /// Les lectures commencées et non finies, la plus récente d'abord.
+  List<Progression> _lecturesEnCours() {
+    final l = _progression.values
+        .where((p) => p.enCours && _local.containsKey(p.docId))
+        .toList()
+      ..sort((a, b) => b.majAt.compareTo(a.majAt));
+    return l;
+  }
+
+  /// Bloc de compteurs — trois nombres, et rien qu'on ne sache.
+  ///
+  /// ⚠ Pas de « temps de lecture », pas de « pages lues cette semaine » : ces
+  /// données n'existent pas. On compte ce que l'appareil sait vraiment.
+  Widget _compteurs() {
+    final enCours = _progression.values.where((p) => p.enCours).length;
+    final termines = _progression.values.where((p) => p.termine).length;
+    final locaux = _local.length;
+    Widget n(String valeur, String libelle) => Expanded(
+          child: Column(
+            children: [
+              Text(valeur,
+                  style: TextStyle(
+                      fontSize: 22,
+                      fontWeight: FontWeight.w700,
+                      color: context.couleurs.primary)),
+              Text(libelle,
+                  textAlign: TextAlign.center,
+                  style: TextStyle(fontSize: 11, color: context.gafeso.texteSecondaire)),
+            ],
+          ),
+        );
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
+      child: Row(
+        children: [
+          n('$enCours', 'en cours'),
+          n('$termines', 'terminés'),
+          n('$locaux', 'sur cet appareil'),
+        ],
+      ),
+    );
+  }
+
+  /// Section « Lectures en cours » : couverture, auteur, pourcentage, filet.
+  Widget _sectionEnCours(List<Progression> l, Map<String, String> titles) => Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
+            child: Text('Lectures en cours',
+                style: TextStyle(
+                    fontSize: 13,
+                    fontWeight: FontWeight.w700,
+                    color: context.gafeso.texteSecondaire)),
+          ),
+          SizedBox(
+            height: 148,
+            child: ListView.separated(
+              scrollDirection: Axis.horizontal,
+              padding: const EdgeInsets.symmetric(horizontal: 16),
+              itemCount: l.length,
+              separatorBuilder: (_, _) => const SizedBox(width: 12),
+              itemBuilder: (_, i) {
+                final p = l[i];
+                final d = _local[p.docId];
+                return SizedBox(
+                  width: 96,
+                  child: InkWell(
+                    onTap: () => _open(p.docId, titles[p.docId] ?? p.docId),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        ClipRRect(
+                          borderRadius: BorderRadius.circular(4),
+                          child: CouvertureGeneree(
+                            titre: titles[p.docId] ?? d?.title ?? '',
+                            auteur: d?.auteur,
+                            type: d?.type,
+                            annee: d?.annee,
+                            domaine: d?.domaine,
+                            largeur: 96,
+                            hauteur: 96,
+                          ),
+                        ),
+                        const SizedBox(height: 6),
+                        if (d?.auteur != null)
+                          Text(d!.auteur!,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: TextStyle(
+                                  fontSize: 11, color: context.gafeso.texteSecondaire)),
+                        const SizedBox(height: 4),
+                        Row(
+                          children: [
+                            Expanded(
+                              child: ClipRRect(
+                                borderRadius: BorderRadius.circular(2),
+                                child: LinearProgressIndicator(
+                                  value: p.part,
+                                  minHeight: 4,
+                                  backgroundColor: context.couleurs.surfaceContainerHighest,
+                                ),
+                              ),
+                            ),
+                            const SizedBox(width: 6),
+                            Text('${p.pourcent} %',
+                                style: TextStyle(
+                                    fontSize: 10, color: context.gafeso.texteSecondaire)),
+                          ],
+                        ),
+                      ],
+                    ),
+                  ),
+                );
+              },
+            ),
+          ),
+          const Divider(height: 24),
+        ],
+      );
+
+  /// Feuille du bas : état, « sur cet appareil », tri, réinitialiser.
+  void _ouvrirFiltres() {
+    showModalBottomSheet<void>(
+      context: context,
+      showDragHandle: true,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, poser) {
+          void maj(void Function() f) {
+            poser(f);
+            setState(f);
+          }
+
+          return SafeArea(
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text('État de lecture',
+                      style: TextStyle(
+                          fontWeight: FontWeight.w700,
+                          color: context.gafeso.texteSecondaire)),
+                  const SizedBox(height: 8),
+                  Wrap(
+                    spacing: 8,
+                    children: [
+                      for (final e in _EtatFiltre.values)
+                        ChoiceChip(
+                          label: Text(e.libelle),
+                          selected: _filtreEtat == e,
+                          onSelected: (_) => maj(() => _filtreEtat = e),
+                        ),
+                    ],
+                  ),
+                  const SizedBox(height: 16),
+                  SwitchListTile(
+                    contentPadding: EdgeInsets.zero,
+                    title: const Text('Sur cet appareil'),
+                    subtitle: const Text('Seulement les documents déjà téléchargés'),
+                    value: _surCetAppareil,
+                    onChanged: (v) => maj(() => _surCetAppareil = v),
+                  ),
+                  const SizedBox(height: 8),
+                  Text('Trier par',
+                      style: TextStyle(
+                          fontWeight: FontWeight.w700,
+                          color: context.gafeso.texteSecondaire)),
+                  const SizedBox(height: 8),
+                  Wrap(
+                    spacing: 8,
+                    children: [
+                      for (final t in _Tri.values)
+                        ChoiceChip(
+                          label: Text(t.libelle),
+                          selected: _tri == t,
+                          onSelected: (_) => maj(() => _tri = t),
+                        ),
+                    ],
+                  ),
+                  const SizedBox(height: 12),
+                  Align(
+                    alignment: Alignment.centerRight,
+                    child: TextButton(
+                      onPressed: () => maj(() {
+                        _filtreEtat = _EtatFiltre.tous;
+                        _surCetAppareil = false;
+                        _tri = _Tri.ajoutRecent;
+                      }),
+                      child: const Text('Réinitialiser'),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          );
+        },
+      ),
     );
   }
 
@@ -522,6 +832,33 @@ class _DocTile extends StatelessWidget {
               : onOpen,
     );
   }
+}
+
+/// État de lecture, tel que l'étagère le filtre.
+///
+/// ⚠ Trois états, pas quatre : il n'y a pas d'« abandonné ». L'app ne sait pas
+/// si quelqu'un a renoncé ou s'il reprendra demain, et prétendre le deviner
+/// mettrait une étiquette fausse sur la moitié d'une étagère.
+enum _EtatFiltre {
+  tous('Tous'),
+  nonCommence('Non commencé'),
+  enCours('En cours'),
+  termine('Terminé');
+
+  const _EtatFiltre(this.libelle);
+  final String libelle;
+}
+
+/// Ordre d'affichage.
+///
+/// ⚠ Pas de « plus lu », pas de « mieux noté » : ces données n'existent pas.
+enum _Tri {
+  ajoutRecent('Ajout récent'),
+  titre('Titre'),
+  auteur('Auteur');
+
+  const _Tri(this.libelle);
+  final String libelle;
 }
 
 /// Referme l'écran qu'il enveloppe dès que la circulation se révèle inactive.

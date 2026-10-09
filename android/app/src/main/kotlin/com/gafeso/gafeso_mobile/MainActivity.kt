@@ -47,8 +47,29 @@ class MainActivity : FlutterActivity() {
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
 
+        // Canal du lecteur : la page courante MONTE vers Dart, le mode de
+        // lecture DESCEND. Rien d'autre ne passe par là.
+        //
+        // ⚠ LA PAGE COURANTE NE SORT PAS DE L'APPAREIL. Dart la range dans le
+        // coffre local ; aucune requête ne la porte, et c'est éprouvé par
+        // `test/progression_locale_test.dart`. Savoir où quelqu'un en est de sa
+        // lecture est une information intime, et un dépôt universitaire n'a pas
+        // à la collecter pour rendre le service.
+        val lecteur = MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "com.gafeso/reader")
+        val fabrique = PdfReaderFactory { index, total ->
+            runOnUiThread { lecteur.invokeMethod("page", mapOf("index" to index, "total" to total)) }
+        }
+        lecteur.setMethodCallHandler { call, result ->
+            when (call.method) {
+                "setMode" -> {
+                    fabrique.vueCourante?.changerMode(call.argument<String>("mode"))
+                    result.success(true)
+                }
+                else -> result.notImplemented()
+            }
+        }
         flutterEngine.platformViewsController.registry
-            .registerViewFactory("gafeso-pdf-reader", PdfReaderFactory())
+            .registerViewFactory("gafeso-pdf-reader", fabrique)
 
         // Canal de provisioning SEED (démo hors-réseau, Étape 1) : exposé UNIQUEMENT en debug.
         // En release il n'est pas enregistré et les assets de démo ne sont pas empaquetés

@@ -15,6 +15,10 @@ class LocalDocument {
     required this.wrappedCek,
     required this.blobPath,
     this.lastStatus = 'active',
+    this.auteur,
+    this.domaine,
+    this.annee,
+    this.type,
   });
 
   final String docId;
@@ -26,6 +30,20 @@ class LocalDocument {
   final String wrappedCek; // enveloppe EC-KEM {v, epk, nonce, ct}
   final String blobPath;
   final String lastStatus;
+
+  /// ⚠ MÉTADONNÉES RECOPIÉES AU TÉLÉCHARGEMENT, et c'est une mesure qui l'impose.
+  /// `GET /offline/my-documents` ne rend que `{docId, title, fileFormat}` —
+  /// relevé dans `offline-licenses.service.ts` le 09/10/2026. Sans ces champs,
+  /// l'étagère ne pourrait composer que des couvertures au titre seul, et la
+  /// section « Lectures en cours » n'aurait ni auteur ni domaine à montrer.
+  ///
+  /// Tous facultatifs : l'étagère sait télécharger un document qu'on n'a ouvert
+  /// nulle part, et il n'y a alors rien à recopier. Un champ absent n'est pas
+  /// inventé. La demande d'enrichir la route est portée au backend.
+  final String? auteur;
+  final String? domaine;
+  final int? annee;
+  final String? type;
 
   /// Date de fin de bail, LUE DU CORPS DE LICENCE déjà présent sur l'appareil.
   ///
@@ -57,6 +75,10 @@ class LocalDocument {
   Map<String, dynamic> toJson() => {
         'docId': docId,
         'title': title,
+        if (auteur != null) 'auteur': auteur,
+        if (domaine != null) 'domaine': domaine,
+        if (annee != null) 'annee': annee,
+        if (type != null) 'type': type,
         'licenseId': licenseId,
         'licenseBody': licenseBody,
         'signature': signature,
@@ -76,6 +98,10 @@ class LocalDocument {
         wrappedCek: j['wrappedCek'] as String,
         blobPath: j['blobPath'] as String,
         lastStatus: (j['lastStatus'] as String?) ?? 'active',
+        auteur: j['auteur'] as String?,
+        domaine: j['domaine'] as String?,
+        annee: (j['annee'] as num?)?.toInt(),
+        type: j['type'] as String?,
       );
 
   LocalDocument copyWith({String? lastStatus}) => LocalDocument(

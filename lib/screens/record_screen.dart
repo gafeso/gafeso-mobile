@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import '../session/progress_store.dart';
+
 import '../theme/gafeso_theme.dart';
 
 import '../api/gafeso_api.dart';
@@ -30,6 +32,8 @@ class RecordScreen extends StatefulWidget {
     this.covers,
     this.origine,
     this.circulation = true,
+    this.estLocal = false,
+    this.progression,
   });
 
   /// L'établissement a-t-il une circulation physique ?
@@ -39,6 +43,14 @@ class RecordScreen extends StatefulWidget {
   /// « Aucun exemplaire physique » serait exact et inutile, et un bouton
   /// « Réserver » promettrait une file d'attente qui n'existe pas.
   final bool circulation;
+
+  /// Le document est-il déjà sur cet appareil ? Décide le badge « Disponible
+  /// hors ligne » et le libellé du bouton principal.
+  final bool estLocal;
+
+  /// Où en est la lecture SUR CET APPAREIL. `null` = on ne sait pas, et on
+  /// n'affiche alors aucun nombre de pages : la notice ne le porte pas.
+  final Progression? progression;
 
   /// Cache des couvertures (optionnel : sans lui, substitut, aucun réseau).
   final CoverCache? covers;
@@ -68,6 +80,8 @@ class RecordScreen extends StatefulWidget {
     CoverCache? covers,
     String? origine,
     bool circulation = true,
+    bool estLocal = false,
+    Progression? progression,
   }) =>
       RecordScreen(
         key: key,
@@ -79,6 +93,8 @@ class RecordScreen extends StatefulWidget {
         covers: covers,
         origine: origine,
         circulation: circulation,
+        estLocal: estLocal,
+        progression: progression,
       );
 
   @override
@@ -86,6 +102,14 @@ class RecordScreen extends StatefulWidget {
 }
 
 class _RecordScreenState extends State<RecordScreen> {
+  bool _resumeDeplie = false;
+
+  /// Ce que l'APPAREIL sait de ce document : est-il déjà là, et où en est la
+  /// lecture. Renseigné par l'appelant ; `null` quand on ne sait pas — et on ne
+  /// devine pas.
+  Progression? get _progressionLocale => widget.progression;
+  bool get _estLocal => widget.estLocal;
+
   RecordDetail? _notice;
   bool _chargement = true;
   bool _reservation = false;
@@ -181,19 +205,41 @@ class _RecordScreenState extends State<RecordScreen> {
         Row(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            CoverImage(
-              coverUrl: n.coverUrl,
-              titre: n.title,
-              cache: widget.covers,
-              origine: widget.origine,
-              largeur: 72,
-              hauteur: 100,
+            // ⚠ GRANDE, et pas par goût : à 72×100 la couverture composée ne
+            // tenait que son initiale. C'est à partir de 120 dp de haut que le
+            // titre et l'auteur s'y lisent, et c'est là qu'elle cesse d'être un
+            // ornement pour devenir ce qui identifie le document.
+            ClipRRect(
+              borderRadius: BorderRadius.circular(5),
+              child: CoverImage(
+                coverUrl: n.coverUrl,
+                titre: n.title,
+                auteur: n.author,
+                type: n.typeLisible,
+                annee: n.publishYear,
+                domaine: n.category,
+                // L'auteur est juste à droite : l'imprimer ici le montrerait
+                // deux fois.
+                avecAuteur: false,
+                cache: widget.covers,
+                origine: widget.origine,
+                largeur: 118,
+                hauteur: 164,
+              ),
             ),
             const SizedBox(width: 14),
             Expanded(
-              child: Text(
-                n.title,
-                style: const TextStyle(fontSize: 21, fontWeight: FontWeight.bold, height: 1.25),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    n.title,
+                    style: const TextStyle(
+                        fontSize: 21, fontWeight: FontWeight.bold, height: 1.25),
+                  ),
+                  const SizedBox(height: 8),
+                  _badges(n),
+                ],
               ),
             ),
           ],
@@ -227,7 +273,7 @@ class _RecordScreenState extends State<RecordScreen> {
 
         if (n.summary != null && n.summary!.trim().isNotEmpty) ...[
           const SizedBox(height: 16),
-          Text(n.summary!, style: const TextStyle(fontSize: 14, height: 1.4)),
+          _resume(n.summary!.trim()),
         ],
 
         if (n.keywords.isNotEmpty) ...[
@@ -258,8 +304,16 @@ class _RecordScreenState extends State<RecordScreen> {
                   color: i.available ? context.gafeso.succes : context.gafeso.avertissement,
                 ),
                 title: Text(i.statusLabel),
+                // ⚠ « Rayon · Cote » NOMMÉS, et seulement là où il y a un
+                // comptoir : ce bloc entier est déjà conditionné à la
+                // circulation. Sans les mots, « Magasin · DRO DRO » ne dit pas
+                // à l'étudiant OÙ aller ni QUOI demander — c'est précisément
+                // l'information qui lui manque devant les rayonnages.
                 subtitle: Text(
-                  [i.location, i.callNumber].whereType<String>().join(' · '),
+                  [
+                    if ((i.location ?? '').isNotEmpty) 'Rayon ${i.location}',
+                    if ((i.callNumber ?? '').isNotEmpty) 'Cote ${i.callNumber}',
+                  ].join(' · '),
                   style: const TextStyle(fontSize: 12),
                 ),
               )),
@@ -322,15 +376,25 @@ class _RecordScreenState extends State<RecordScreen> {
     }
 
     if (n.estTelechargeable(maintenant)) {
-      return Card(
-        color: context.gafeso.succesFond,
-        child: ListTile(
-          leading: const Icon(Icons.download_for_offline_outlined),
-          title: const Text('Document numérique disponible'),
-          subtitle: const Text('Téléchargeable pour lecture hors connexion.'),
-          onTap: widget.onOpenDigital == null
+      // ⚠ UN BOUTON, PAS UNE CARTE À TOUCHER. Le geste principal de cette fiche
+      // est d'emporter le document ; une carte d'information cliquable ne se
+      // lit pas comme une action, et c'est le défaut que Jean nomme « plate ».
+      // Le libellé dit ce qui va se passer : LIRE si le document est déjà là,
+      // TÉLÉCHARGER sinon. « Ouvrir » couvrirait les deux et n'informerait sur
+      // aucun — et sur une connexion comptée, savoir si un geste va coûter des
+      // mégaoctets n'est pas un détail.
+      return SizedBox(
+        width: double.infinity,
+        child: FilledButton.icon(
+          onPressed: widget.onOpenDigital == null
               ? null
               : () => widget.onOpenDigital!(context, n),
+          icon: Icon(_estLocal ? Icons.menu_book_outlined : Icons.download_outlined),
+          label: Text(_estLocal ? 'Lire hors ligne' : 'Télécharger'),
+          style: FilledButton.styleFrom(
+            padding: const EdgeInsets.symmetric(vertical: 14),
+            textStyle: const TextStyle(fontSize: 15, fontWeight: FontWeight.w600),
+          ),
         ),
       );
     }
@@ -366,6 +430,86 @@ class _RecordScreenState extends State<RecordScreen> {
   /// qui regarde. Le lien n'est pas rendu cliquable : ouvrir un navigateur
   /// demanderait une dépendance que l'app n'a pas, et un lien affiché reste
   /// vrai.
+  /// Badges de la fiche — **seulement ce que la notice porte vraiment**.
+  ///
+  /// ⚠ Pas de badge « 240 pages » quand on ne connaît pas le nombre de pages :
+  /// la notice ne le donne pas, et seul un document DÉJÀ ouvert sur cet appareil
+  /// nous l'apprend. Un badge absent vaut mieux qu'un badge plausible.
+  Widget _badges(RecordDetail n) {
+    final p = _progressionLocale;
+    final items = <(String, bool)>[
+      if ((n.typeLisible ?? '').isNotEmpty) (n.typeLisible!, false),
+      if (n.publishYear != null) ('${n.publishYear}', false),
+      if (p != null) ('${p.pages} pages', false),
+      if (_estLocal) ('Disponible hors ligne', true),
+    ];
+    if (items.isEmpty) return const SizedBox.shrink();
+    return Wrap(
+      spacing: 6,
+      runSpacing: 6,
+      children: [
+        for (final (texte, fort) in items)
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+            decoration: BoxDecoration(
+              color: fort ? context.gafeso.succesFond : context.gafeso.infoFond,
+              borderRadius: BorderRadius.circular(4),
+            ),
+            child: Text(
+              texte,
+              style: TextStyle(
+                fontSize: 11,
+                fontWeight: FontWeight.w600,
+                color: fort ? context.gafeso.surSucces : context.gafeso.surInfo,
+              ),
+            ),
+          ),
+      ],
+    );
+  }
+
+  /// Résumé repliable.
+  ///
+  /// ⚠ Le seuil est en LIGNES rendues, pas en caractères : un résumé de 300
+  /// signes tient en quatre lignes sur une tablette et en douze sur un écran
+  /// étroit. On replie à partir de cinq lignes effectives, et « Voir plus »
+  /// n'apparaît que s'il y a vraiment quelque chose de caché — un bouton qui
+  /// ne révèle rien use la confiance.
+  Widget _resume(String texte) => LayoutBuilder(
+        builder: (ctx, bornes) {
+          const style = TextStyle(fontSize: 14, height: 1.45);
+          final tp = TextPainter(
+            text: TextSpan(text: texte, style: style),
+            maxLines: 5,
+            textDirection: TextDirection.ltr,
+          )..layout(maxWidth: bornes.maxWidth);
+          final deborde = tp.didExceedMaxLines;
+          return Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                texte,
+                style: style,
+                maxLines: _resumeDeplie || !deborde ? null : 5,
+                overflow: _resumeDeplie || !deborde
+                    ? TextOverflow.clip
+                    : TextOverflow.ellipsis,
+              ),
+              if (deborde)
+                TextButton(
+                  style: TextButton.styleFrom(
+                    padding: EdgeInsets.zero,
+                    minimumSize: const Size(0, 32),
+                    tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                  ),
+                  onPressed: () => setState(() => _resumeDeplie = !_resumeDeplie),
+                  child: Text(_resumeDeplie ? 'Voir moins' : 'Voir plus'),
+                ),
+            ],
+          );
+        },
+      );
+
   Widget _bandeauProvenance(Provenance p) => Container(
         padding: const EdgeInsets.all(12),
         decoration: BoxDecoration(
@@ -471,24 +615,10 @@ class _RecordScreenState extends State<RecordScreen> {
     return Row(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        if (n.typeLisible != null) ...[
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-            decoration: BoxDecoration(
-              color: context.gafeso.infoFond,
-              borderRadius: BorderRadius.circular(4),
-            ),
-            child: Text(
-              n.typeLisible!,
-              style: TextStyle(
-                fontSize: 11,
-                fontWeight: FontWeight.w600,
-                color: context.gafeso.surInfo,
-              ),
-            ),
-          ),
-          const SizedBox(width: 8),
-        ],
+        // ⚠ LA PASTILLE DE TYPE A DÉMÉNAGÉ, elle n'a pas disparu. Elle vit
+        // désormais dans la rangée de badges, sous le titre — et la laisser ici
+        // AUSSI affichait « Ouvrage » deux fois sur la même fiche, à trois
+        // centimètres d'écart. C'est un test qui l'a vu, pas une relecture.
         Expanded(
           child: Text(
             parts.join(' · '),

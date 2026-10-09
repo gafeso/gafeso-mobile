@@ -24,12 +24,18 @@ import io.flutter.plugin.platform.PlatformView
 class PdfReaderView(
     context: Context,
     params: Map<String, Any?>,
+    /** Remonte la page courante à Dart, qui la MÉMORISE SUR L'APPAREIL. */
+    private val surPage: (index: Int, total: Int) -> Unit = { _, _ -> },
+    /** Prévient la fabrique que cette vue n'est plus vivante. */
+    private val surFermeture: () -> Unit = {},
 ) : PlatformView {
 
     private val root = FrameLayout(context)
     private var bridge: PdfiumBridge? = null
     private var screenW: Int = context.resources.displayMetrics.widthPixels.coerceAtLeast(360)
     private val watermark = (params["watermark"] as? String) ?: ""
+    private var mode = ModeLecture.depuis(params["mode"] as? String)
+    private var pager: ViewPager2? = null
 
     init {
         try {
@@ -69,7 +75,7 @@ class PdfReaderView(
                 "segments=${reader.nSegs}, cache=${reader.cacheBytes() / 1024}Ko",
         )
 
-        val pager = ViewPager2(context).apply {
+        val vp = ViewPager2(context).apply {
             orientation = ViewPager2.ORIENTATION_VERTICAL
             offscreenPageLimit = 1 // fenêtre glissante : visible + 1 de chaque côté
             adapter = PageAdapter(pageCount)
@@ -77,7 +83,25 @@ class PdfReaderView(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT,
             )
         }
-        root.addView(pager)
+        pager = vp
+        root.setBackgroundColor(mode.fond)
+
+        // ⚠ REPRISE À LA DERNIÈRE PAGE LUE. La valeur vient de Dart, qui la tient
+        // sur l'appareil — elle n'est jamais demandée au serveur, et ne lui est
+        // jamais envoyée. On borne : une progression enregistrée pour un
+        // document remplacé depuis pointerait au-delà du document.
+        val depart = ((p["pageDepart"] as? Number)?.toInt() ?: 0).coerceIn(0, pageCount - 1)
+        if (depart > 0) vp.setCurrentItem(depart, false)
+
+        vp.registerOnPageChangeCallback(object : ViewPager2.OnPageChangeCallback() {
+            override fun onPageSelected(position: Int) {
+                surPage(position, pageCount)
+            }
+        })
+        // La page de départ ne déclenche pas toujours le rappel : on l'annonce.
+        surPage(depart, pageCount)
+
+        root.addView(vp)
         return true
     }
 
@@ -93,6 +117,8 @@ class PdfReaderView(
 
     override fun dispose() {
         bridge?.close(); bridge = null
+        pager = null
+        surFermeture()
     }
 
     /** Adaptateur : rend chaque page à la largeur écran, incruste le filigrane, recycle. */
@@ -100,11 +126,16 @@ class PdfReaderView(
         RecyclerView.Adapter<PageHolder>() {
 
         override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): PageHolder {
-            val iv = ImageView(parent.context).apply {
+            val iv = ZoomableImageView(parent.context) { zoome ->
+                // Tant que la page est agrandie, le pager ne doit pas voler le
+                // glissement : sinon le document est inatteignable dès qu'on
+                // zoome, ce qui rend le zoom inutile.
+                pager?.isUserInputEnabled = !zoome
+            }.apply {
                 layoutParams = ViewGroup.LayoutParams(
                     ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT,
                 )
-                scaleType = ImageView.ScaleType.FIT_CENTER
+                colorFilter = mode.filtre()
             }
             return PageHolder(iv)
         }
@@ -127,9 +158,33 @@ class PdfReaderView(
         }
     }
 
-    private inner class PageHolder(private val iv: ImageView) : RecyclerView.ViewHolder(iv) {
+    private inner class PageHolder(private val iv: ZoomableImageView) :
+        RecyclerView.ViewHolder(iv) {
         private var bmp: Bitmap? = null
-        fun bind(b: Bitmap) { recycle(); bmp = b; iv.setImageBitmap(b) }
-        fun recycle() { iv.setImageDrawable(null); bmp?.recycle(); bmp = null }
+        fun bind(b: Bitmap) {
+            recycle()
+            bmp = b
+            iv.colorFilter = mode.filtre()
+            iv.setImageBitmap(b)
+        }
+        fun recycle() {
+            iv.reinitialiser()
+            iv.setImageDrawable(null)
+            bmp?.recycle()
+            bmp = null
+        }
+    }
+
+    /**
+     * Change le mode de lecture sans rouvrir le document.
+     *
+     * ⚠ Rouvrir coûterait une vérification de licence, un déballage de CEK et
+     * un re-rendu de la page — pour un changement qui ne touche QUE l'affichage.
+     * On repeint, et la position de lecture est conservée.
+     */
+    fun changerMode(cle: String?) {
+        mode = ModeLecture.depuis(cle)
+        root.setBackgroundColor(mode.fond)
+        pager?.adapter?.notifyDataSetChanged()
     }
 }

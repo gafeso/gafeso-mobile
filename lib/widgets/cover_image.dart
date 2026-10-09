@@ -2,9 +2,9 @@ import 'dart:io';
 
 import 'package:flutter/material.dart';
 
-import '../theme/gafeso_theme.dart';
 
 import '../cache/cover_cache.dart';
+import 'couverture_generee.dart';
 
 /// Couverture d'une notice, ou son substitut.
 ///
@@ -24,10 +24,25 @@ class CoverImage extends StatefulWidget {
     this.origine,
     this.largeur = 44,
     this.hauteur = 62,
+    this.auteur,
+    this.type,
+    this.annee,
+    this.domaine,
+    this.avecAuteur = true,
   });
 
   final String? coverUrl;
   final String titre;
+
+  /// Ce que la couverture DESSINÉE affiche quand aucune image n'est rendue.
+  /// Tous facultatifs : un champ absent n'apparaît pas, il n'est pas inventé.
+  final String? auteur;
+  final String? type;
+  final int? annee;
+  final String? domaine;
+
+  /// Voir `CouvertureGeneree.avecAuteur`.
+  final bool avecAuteur;
 
   /// `null` = pas de cache disponible (tests, ou app non configurée) : on
   /// affiche le substitut sans jamais tenter le réseau.
@@ -99,21 +114,18 @@ class _CoverImageState extends State<CoverImage> {
     );
   }
 
-  Widget _substitut(BuildContext context) {
-    final lettre = widget.titre.trim().isEmpty
-        ? '?'
-        : widget.titre.trim().characters.first.toUpperCase();
-    return Container(
-      color: context.gafeso.infoFond,
-      alignment: Alignment.center,
-      child: Text(
-        lettre,
-        style: TextStyle(
-          fontSize: widget.hauteur * 0.42,
-          fontWeight: FontWeight.w600,
-          color: context.gafeso.info,
-        ),
-      ),
-    );
-  }
+  /// ⚠ Le substitut n'est plus un carré gris à initiale : c'est une couverture
+  /// composée du texte de la notice. Mesure à l'appui — sur ce fonds, 480
+  /// notices sur 480 pointent un SVG non rendu, partagé par quatre-vingts
+  /// notices à la fois. Voir `CouvertureGeneree`.
+  Widget _substitut(BuildContext context) => CouvertureGeneree(
+        titre: widget.titre,
+        auteur: widget.auteur,
+        type: widget.type,
+        annee: widget.annee,
+        domaine: widget.domaine,
+        avecAuteur: widget.avecAuteur,
+        largeur: widget.largeur,
+        hauteur: widget.hauteur,
+      );
 }

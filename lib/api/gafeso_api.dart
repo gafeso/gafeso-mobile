@@ -254,6 +254,7 @@ class GafesoApi {
     int limit = 20,
     String? recordType,
     int? year,
+    String? category,
   }) async {
     // ⚠ Les filtres ne sont envoyés QUE s'ils valent quelque chose : un
     // paramètre vide n'est pas un filtre neutre côté serveur, c'est une valeur
@@ -264,6 +265,10 @@ class GafesoApi {
       'limit': '$limit',
       if (recordType != null && recordType.isNotEmpty) 'recordType': recordType,
       if (year != null) 'year': '$year',
+      // ⚠ Relevé dans le DTO du serveur (`opac/dto/*search*.ts`) le 09/10/2026 :
+      // `category` est accepté. C'est ce qui permet d'explorer PAR DOMAINE sans
+      // taper un mot, là où l'écran de recherche n'offrait qu'un champ vide.
+      if (category != null && category.isNotEmpty) 'category': category,
     }).query;
     return (await _send('GET', '/opac/search?$query')) as Object;
   }

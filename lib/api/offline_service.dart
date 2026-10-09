@@ -49,7 +49,14 @@ class OfflineService {
   // ── Mise à disposition hors-ligne ───────────────────────────────────────────
   /// Télécharge un document pour la lecture hors-ligne : licence émise + blob chiffré + entrée
   /// de bibliothèque persistée (c'est elle qui permet d'ouvrir ensuite SANS réseau).
-  Future<LocalDocument> download({required String docId, required String title}) async {
+  Future<LocalDocument> download({
+    required String docId,
+    required String title,
+    String? auteur,
+    String? domaine,
+    int? annee,
+    String? type,
+  }) async {
     final devId = await ensureDeviceRegistered();
     final license = await api.issueLicense(docId: docId, deviceId: devId);
 
@@ -59,9 +66,17 @@ class OfflineService {
       await api.downloadBlob(url: blob.url, dest: dest);
     }
 
+    // ⚠ On ne PERD pas ce qu'on savait déjà. Un renouvellement part souvent de
+    // l'étagère, qui n'a que le titre : écraser l'auteur et le domaine recopiés
+    // au premier téléchargement appauvrirait la fiche à chaque renouvellement.
+    final ancien = (await library.readAll())[docId];
     final doc = LocalDocument(
       docId: docId,
       title: title,
+      auteur: auteur ?? ancien?.auteur,
+      domaine: domaine ?? ancien?.domaine,
+      annee: annee ?? ancien?.annee,
+      type: type ?? ancien?.type,
       licenseId: license.licenseId,
       licenseBody: license.bodyJson,
       signature: license.signature,

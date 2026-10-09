@@ -1,9 +1,10 @@
 import 'dart:io';
-import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:gafeso_mobile/theme/gafeso_theme.dart';
+
+import 'outils_contraste.dart';
 
 /// ═══════════════════════════════════════════════════════════════════════════
 /// L'IDENTITÉ, ÉPROUVÉE — contraste réel, et une seule source de couleur.
@@ -20,18 +21,6 @@ import 'package:gafeso_mobile/theme/gafeso_theme.dart';
 /// 2. **Aucune couleur littérale hors du fichier de thème.** Une couleur écrite
 ///    dans un écran ne suit pas le mode sombre et ne se teste pas : c'est ainsi
 ///    que `Colors.black54` s'était recopié sur dix-huit écrans.
-
-// ── WCAG 2.1, relative luminance et rapport de contraste ────────────────────
-double _canal(double c) =>
-    c <= 0.03928 ? c / 12.92 : math.pow((c + 0.055) / 1.055, 2.4).toDouble();
-
-double _luminance(Color c) =>
-    0.2126 * _canal(c.r) + 0.7152 * _canal(c.g) + 0.0722 * _canal(c.b);
-
-double contraste(Color a, Color b) {
-  final la = _luminance(a), lb = _luminance(b);
-  return (math.max(la, lb) + 0.05) / (math.min(la, lb) + 0.05);
-}
 
 void main() {
   group('la formule de contraste elle-même', () {

@@ -1,15 +1,15 @@
 import 'dart:convert';
-import 'dart:math' as math;
 import 'dart:io' show SocketException;
 
 import 'package:barcode_widget/barcode_widget.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:gafeso_mobile/cache/offline_cache.dart';
 import 'package:gafeso_mobile/screens/library_card_screen.dart';
 import 'package:gafeso_mobile/theme/gafeso_theme.dart';
+
+import 'outils_contraste.dart';
 
 /// Carte de lecteur — l'écran qui doit marcher au comptoir, sans wifi.
 void main() {
@@ -143,39 +143,6 @@ void main() {
   /// défaut est muet — l'écran s'affiche, le code se lit, et c'est le NOM qu'on
   /// présente au comptoir qui a disparu. Trouvé sur capture, pas en relecture.
   group('⚠ lisibilité de la carte en mode sombre', () {
-    double canal(double c) =>
-        c <= 0.03928 ? c / 12.92 : math.pow((c + 0.055) / 1.055, 2.4).toDouble();
-    double luminance(Color c) =>
-        0.2126 * canal(c.r) + 0.7152 * canal(c.g) + 0.0722 * canal(c.b);
-    double contraste(Color a, Color b) {
-      final la = luminance(a), lb = luminance(b);
-      return (math.max(la, lb) + 0.05) / (math.min(la, lb) + 0.05);
-    }
-
-    /// Couleur RÉELLEMENT peinte, relevée sur le paragraphe rendu.
-    ///
-    /// ⚠ On balaie tous les paragraphes plutôt que de viser `find.text` : le
-    /// numéro est un `SelectableText`, dont l'objet de rendu n'est pas un
-    /// `RenderParagraph` mais l'enveloppe d'un champ éditable. Viser le widget
-    /// aurait fait échouer le test pour une raison de plomberie, pas de
-    /// lisibilité — et c'est exactement le genre d'échec qu'on finit par
-    /// désactiver.
-    Color couleurPeinte(WidgetTester t, String texte) {
-      // Les paragraphes ordinaires d'abord.
-      for (final p in t.renderObjectList<RenderParagraph>(find.byType(RichText))) {
-        if (p.text.toPlainText().contains(texte)) return p.text.style!.color!;
-      }
-      // ⚠ Puis les champs éditables : le numéro est un `SelectableText`, qui
-      // peint par un `EditableText` et non par un paragraphe. Chercher
-      // seulement les paragraphes aurait fait échouer le test pour une raison
-      // de plomberie, pas de lisibilité — et c'est le genre d'échec qu'on finit
-      // par désactiver au lieu de corriger.
-      for (final e in t.widgetList<EditableText>(find.byType(EditableText))) {
-        if (e.controller.text.contains(texte)) return e.style.color!;
-      }
-      throw StateError('texte « $texte » introuvable à l’écran');
-    }
-
     for (final (nom, theme) in [('clair', gafesoClair()), ('sombre', gafesoSombre())]) {
       testWidgets('[$nom] le NOM du lecteur se lit sur la carte', (t) async {
         await monter(t, theme: theme);

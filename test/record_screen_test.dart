@@ -87,11 +87,12 @@ void main() {
     await tester.pumpAndSettle();
   }
 
-  Future<void> monter(WidgetTester tester) async {
+  Future<void> monter(WidgetTester tester, {bool estLocal = false}) async {
     await tester.pumpWidget(MaterialApp(
       home: RecordScreen(
         recordId: 'bdefba53-70ee-4214-b83f-a4cc7f6bde75',
         titleHint: 'Droit constitutionnel burkinabè',
+        estLocal: estLocal,
         fetchRecord: (id) async {
           if (horsLigne) throw const SocketException('réseau coupé');
           return jsonDecode(noticeJson) as Object;
@@ -111,7 +112,7 @@ void main() {
     expect(find.text('Presses universitaires · 2023 · droit'), findsOneWidget);
     // « AVAILABLE » ne dit rien à un étudiant.
     expect(find.text('Disponible'), findsOneWidget);
-    expect(find.text('Salle de lecture · 342.5 TRA'), findsOneWidget);
+    expect(find.text('Rayon Salle de lecture · Cote 342.5 TRA'), findsOneWidget);
   });
 
   testWidgets('DISPONIBLE : on n’offre pas de réserver', (tester) async {
@@ -156,8 +157,21 @@ void main() {
       (tester) async {
     noticeJson = notice(items: [exemplaire('CHECKED_OUT')], digital: true);
     await monter(tester);
-    expect(find.text('Document numérique disponible'), findsOneWidget);
-    expect(find.textContaining('hors connexion'), findsOneWidget);
+    // ⚠ Le libellé dit ce qui va se passer. « Télécharger » parce que le
+    // document n'est pas sur l'appareil ; il dirait « Lire hors ligne » s'il
+    // l'était. « Ouvrir » couvrirait les deux et n'informerait sur aucun — et
+    // sur une connexion comptée, savoir si un geste va coûter des mégaoctets
+    // n'est pas un détail.
+    expect(find.widgetWithText(FilledButton, 'Télécharger'), findsOneWidget);
+    expect(find.text('Lire hors ligne'), findsNothing);
+  });
+
+  testWidgets('⚠ document DÉJÀ sur l’appareil : le bouton dit « Lire hors ligne »',
+      (tester) async {
+    noticeJson = notice(items: [exemplaire('CHECKED_OUT')], digital: true);
+    await monter(tester, estLocal: true);
+    expect(find.widgetWithText(FilledButton, 'Lire hors ligne'), findsOneWidget);
+    expect(find.text('Télécharger'), findsNothing);
   });
 
   testWidgets('un statut INCONNU est affiché tel quel, jamais réinterprété',
@@ -202,8 +216,9 @@ void main() {
       noticeJson = notice(digital: true, fileFormat: 'PDF');
       await monter(tester);
 
-      expect(find.text('Document numérique disponible'), findsOneWidget);
-      expect(find.text('Téléchargeable pour lecture hors connexion.'), findsOneWidget);
+      // Le geste principal est un BOUTON, et son libellé dit ce qui va se
+      // passer : « Télécharger » quand le document n'est pas encore là.
+      expect(find.widgetWithText(FilledButton, 'Télécharger'), findsOneWidget);
     });
 
     testWidgets('EPUB : jamais de promesse de lecture hors connexion',
@@ -214,7 +229,7 @@ void main() {
       await monter(tester);
 
       expect(find.textContaining('hors connexion'), findsOneWidget);
-      expect(find.text('Téléchargeable pour lecture hors connexion.'), findsNothing);
+      expect(find.text('Télécharger'), findsNothing);
       expect(find.text('Document numérique disponible (EPUB)'), findsOneWidget);
       expect(find.textContaining('que le PDF'), findsOneWidget);
     });
@@ -230,7 +245,7 @@ void main() {
       await monter(tester);
 
       expect(find.text('Document sous embargo'), findsOneWidget);
-      expect(find.text('Téléchargeable pour lecture hors connexion.'), findsNothing);
+      expect(find.text('Télécharger'), findsNothing);
       final l = dans2ans.toLocal();
       final jour = '${l.day.toString().padLeft(2, '0')}/'
           '${l.month.toString().padLeft(2, '0')}/${l.year}';
@@ -248,7 +263,7 @@ void main() {
       await monter(tester);
 
       expect(find.text('Document sous embargo'), findsNothing);
-      expect(find.text('Téléchargeable pour lecture hors connexion.'), findsOneWidget);
+      expect(find.text('Télécharger'), findsOneWidget);
     });
 
     testWidgets('aucun document numérique : aucune carte', (tester) async {

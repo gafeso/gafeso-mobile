@@ -337,6 +337,106 @@ ThemeData _construire(ColorScheme s, GafesoPalette p) {
 ThemeData gafesoClair() => _construire(_schemaClair, _paletteClaire);
 ThemeData gafesoSombre() => _construire(_schemaSombre, _paletteSombre);
 
+/// ═══════════════════════════════════════════════════════════════════════════
+/// COUVERTURES GÉNÉRÉES — la teinte d'un domaine
+/// ═══════════════════════════════════════════════════════════════════════════
+///
+/// ⚠ POURQUOI DES COUVERTURES DESSINÉES PLUTÔT QUE TÉLÉCHARGÉES, et c'est une
+/// MESURE qui l'impose, pas un goût (relevé du 09/10/2026 sur le fonds de
+/// démonstration, 480 notices) :
+///
+///   · 480 notices sur 480 portent bien une `coverUrl` — 100 % ;
+///   · toutes pointent un **SVG**, que Flutter ne rend pas sans dépendance ;
+///   · et il n'existe que **6 fichiers distincts** pour 480 notices, soit
+///     quatre-vingts notices par image.
+///
+/// Même en ajoutant un moteur SVG, deux thèses voisines s'afficheraient
+/// identiques : l'image ne porterait aucune information. Une couverture
+/// composée du titre, de l'auteur et de l'année en porte, coûte zéro octet de
+/// réseau, et s'affiche hors ligne. L'image servie reste prioritaire quand elle
+/// existe et qu'on sait la rendre — elle n'est simplement plus le cas courant.
+///
+/// La teinte vient du DOMAINE, pas du titre : les travaux d'un même champ se
+/// reconnaissent en bloc dans une liste, et un même domaine garde sa couleur
+/// d'un écran à l'autre. Toutes portent du texte blanc à 6,2:1 au minimum —
+/// éprouvé dans `test/couleurs_test.dart`.
+const couverturesDomaine = <Color>[
+  Color(0xFF1B5E3F), // 0 vert profond — le vert de marque
+  Color(0xFF14492F), // 1 vert forêt
+  Color(0xFF2F6B55), // 2 vert-de-gris
+  Color(0xFF8A4A14), // 3 terre brûlée — famille orange de la marque
+  Color(0xFF7A3A0C), // 4 brique
+  Color(0xFF6B4A10), // 5 ocre sombre
+  Color(0xFF28433A), // 6 ardoise verte
+  Color(0xFF4A2D3A), // 7 prune sourde
+  Color(0xFF1E3A5F), // 8 bleu encre
+  Color(0xFF3E5222), // 9 vert olive
+  Color(0xFF6E2F1B), // 10 rouille
+  Color(0xFF33305E), // 11 indigo sourd
+];
+
+/// Texte posé sur une couverture générée. Blanc, sur les douze teintes.
+const surCouverture = Color(0xFFFFFFFF);
+
+/// Domaines courants, chacun à sa teinte — **choisies, pas tirées**.
+///
+/// ⚠ POURQUOI UNE TABLE PLUTÔT QU'UN HACHAGE SEUL. Un hachage ne peut pas
+/// garantir l'absence de collision sur un ensemble connu : c'est arithmétique,
+/// pas un défaut d'implémentation. Mesuré sur les dix domaines réels du fonds,
+/// la somme des unités de code rendait quatre teintes, FNV-1a en rendait sept,
+/// et élargir la palette à douze n'améliorait rien (six). Deux domaines
+/// confondus, ce sont deux rayons qui se ressemblent dans une liste — soit
+/// exactement le défaut qu'on corrige en quittant les six images partagées.
+///
+/// La table couvre les champs académiques courants. Tout le reste passe par le
+/// hachage : un établissement qui catalogue autrement garde des couleurs
+/// stables, simplement non choisies.
+const _teintesConnues = <String, int>{
+  'arts': 7,
+  'droit': 8,
+  'economie': 3,
+  'histoire': 6,
+  'informatique': 2,
+  'langues': 11,
+  'litterature': 10,
+  'medecine': 0,
+  'philosophie': 4,
+  'sciences': 9,
+};
+
+/// Teinte d'un domaine — DÉTERMINISTE et stable.
+///
+/// ⚠ Pas de `hashCode` : le hachage des chaînes Dart n'est pas garanti stable
+/// d'une exécution à l'autre ni d'une version à l'autre. Une couverture qui
+/// change de couleur au redémarrage détruirait le seul service qu'elle rend :
+/// se reconnaître. FNV-1a ne dépend que du texte.
+Color teinteDomaine(String? domaine) {
+  final d = (domaine ?? '').trim().toLowerCase();
+  if (d.isEmpty) return couverturesDomaine.first;
+  final connue = _teintesConnues[d];
+  if (connue != null) return couverturesDomaine[connue];
+  var h = 0x811c9dc5;
+  for (final u in d.codeUnits) {
+    h = ((h ^ u) * 0x01000193) & 0xFFFFFFFF;
+  }
+  return couverturesDomaine[h % couverturesDomaine.length];
+}
+
+/// Fonds des trois modes de lecture.
+///
+/// ⚠ CES VALEURS SONT DUPLIQUÉES CÔTÉ NATIF (`ModeLecture.kt`), et c'est une
+/// dette assumée, pas un oubli : la page est peinte par la vue native, ce qui
+/// l'entoure est peint par Flutter, et les deux doivent s'accorder au bit près
+/// — sinon le mode Nuit laisse une bande claire sous la page. Elles ne peuvent
+/// pas être importées l'une de l'autre (Kotlin ne lit pas Dart), alors elles
+/// sont écrites deux fois et `test/modes_lecture_test.dart` les compare au
+/// fichier Kotlin.
+const fondsModesLecture = <String, Color>{
+  'classique': Color(0xFFFBFDF9),
+  'sepia': Color(0xFFF3E7D0),
+  'nuit': Color(0xFF12140F),
+};
+
 /// Raccourci de lecture dans les écrans : `context.gafeso.succes`.
 extension GafesoThemeContext on BuildContext {
   /// ⚠ REPLI PLUTÔT QUE `!`. Un widget de ce dépôt peut être monté sous un
