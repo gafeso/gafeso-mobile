@@ -118,7 +118,24 @@ class _LibraryCardScreenState extends State<LibraryCardScreen> {
     );
   }
 
-  Widget _carteWidget(LibraryCard c) => Padding(
+  /// ⚠ LA CARTE EST UNE FEUILLE BLANCHE, DANS LES DEUX MODES — et tout ce qui
+  /// s'y pose doit donc prendre une couleur de CARTE, pas une couleur de thème.
+  ///
+  /// Trouvé en mode sombre, sur capture : le nom du lecteur et son numéro
+  /// n'avaient pas de couleur déclarée, héritaient donc de `onSurface` — clair
+  /// sur fond sombre — et devenaient quasi invisibles sur le blanc de la carte.
+  /// Le défaut est muet : l'écran s'affiche, le code-barres se lit, et c'est le
+  /// nom qu'on présente au comptoir qui a disparu.
+  ///
+  /// Le `DefaultTextStyle` règle la question pour TOUT le contenu, y compris ce
+  /// qu'on y ajoutera demain — là où corriger trois styles un à un laisse le
+  /// quatrième se tromper.
+  Widget _carteWidget(LibraryCard c) => DefaultTextStyle.merge(
+        style: TextStyle(color: context.gafeso.surCarte),
+        child: _contenuCarte(c),
+      );
+
+  Widget _contenuCarte(LibraryCard c) => Padding(
         padding: const EdgeInsets.all(24),
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
@@ -160,7 +177,10 @@ class _LibraryCardScreenState extends State<LibraryCardScreen> {
                   'Cette bibliothèque utilise un format de code-barres que '
                   'l’application ne sait pas dessiner (« ${c.symbology} »). '
                   'Donnez le numéro ci-dessous au comptoir.',
-                  style: const TextStyle(fontSize: 13),
+                  // Ce bloc a son PROPRE fond : il garde sa propre couleur de
+                  // texte, que le DefaultTextStyle de la carte ne doit pas
+                  // écraser.
+                  style: TextStyle(fontSize: 13, color: context.gafeso.surAvertissement),
                 ),
               ),
             const SizedBox(height: 16),
