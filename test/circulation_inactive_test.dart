@@ -130,4 +130,76 @@ void main() {
       expect(avis, 1);
     });
   });
+
+  group('⚠ LE SERVEUR TRANCHE — un refus transitoire n’ampute plus rien', () {
+    AppState etat() => AppState(
+          apiBaseUrl: 'http://127.0.0.1:1',
+          storageDir: Directory.systemTemp.createTempSync('gafeso-verite'),
+          sessionStore: SessionStore(),
+        );
+
+    test('⚠ LE CAS CONSTATÉ : refus isolé alors que circulationActive = true', () {
+      // Observé une fois sur `recette-etu@` — un compte qui A un prêt et une
+      // réservation : l'étagère est passée en profil « bibliothèque numérique »
+      // et y est restée jusqu'à la relance, alors que `/tenancy/current`
+      // donnait circulation active et que `/reader/*` rendaient 200.
+      //
+      // Le signal de refus est irréversible pour la session, DÉLIBÉRÉMENT : un
+      // signal qui se relève rouvrirait le menu qui ment. Ce qui manquait,
+      // c'est qu'il ne pèse rien face à une réponse du serveur.
+      final s = etat();
+      s.circulationDuServeur = true;
+      s.circulationInactive(); // le hoquet
+      expect(s.circulationActive, isTrue,
+          reason: 'un refus d’une milliseconde a amputé le menu');
+      expect(s.titreEtagere, 'Mon étagère');
+    });
+
+    test('le serveur dit NON : le menu se ferme, et aucun refus n’est requis', () {
+      final s = etat();
+      s.circulationDuServeur = false;
+      expect(s.circulationActive, isFalse);
+      expect(s.titreEtagere, 'Mes documents');
+    });
+
+    test('⚠ le serveur se TAIT (antérieur à rc6) : le repli reprend la main', () {
+      // Trois états, et le troisième compte : « je ne sais pas » n'est pas
+      // « il n'y a pas de comptoir ».
+      final s = etat();
+      expect(s.circulationDuServeur, isNull);
+      expect(s.circulationActive, isTrue, reason: 'sans information, on montre tout');
+      s.circulationInactive();
+      expect(s.circulationActive, isFalse, reason: 'le repli doit encore servir');
+    });
+
+    test('⚠ UN SIGNAL POSITIF ANNULE LA BASCULE — même sans le serveur', () {
+      // Une route `/reader/*` qui répond 200 prouve qu'il y a un comptoir.
+      final s = etat();
+      s.circulationInactive();
+      expect(s.circulationActive, isFalse);
+      s.circulationConfirmee();
+      expect(s.circulationActive, isTrue);
+    });
+
+    test('la réponse du serveur efface un refus déjà enregistré', () async {
+      final s = etat();
+      s.circulationInactive();
+      expect(s.circulationActive, isFalse);
+      // Ce que fait `chargerCirculation()` quand le serveur répond « true ».
+      s.circulationDuServeur = true;
+      s.circulationConfirmee();
+      expect(s.circulationActive, isTrue);
+    });
+
+    test('⚠ TÉMOIN — sans la source de vérité, le refus amputerait bien', () {
+      // Sans ce cas, les assertions ci-dessus pourraient passer parce que
+      // `circulationInactive()` ne fait plus rien du tout.
+      final s = etat();
+      var avis = 0;
+      s.addListener(() => avis++);
+      s.circulationInactive();
+      expect(avis, 1, reason: 'le repli a été neutralisé, pas subordonné');
+      expect(s.circulationRefusee, isTrue);
+    });
+  });
 }

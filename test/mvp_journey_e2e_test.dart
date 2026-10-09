@@ -31,21 +31,30 @@ final _backendDir = Platform.environment['GAFESO_BACKEND_DIR'] ??
 /// Il était écrit en dur ici. Deux raisons de ne plus le faire : un mot de passe
 /// versionné est un mot de passe publié, et celui-ci était de toute façon devenu
 /// faux — `seed-demo.mjs` tire désormais le mot de passe au hasard à chaque
-/// exécution (surchargeable par `SEED_PASSWORD`). Le test échouait donc à la
-/// connexion sans que la cause soit lisible.
+/// Mot de passe des comptes de RECETTE, lu dans le `.env` du backend.
 ///
-/// Lancez le seed avec `SEED_PASSWORD=... ` et passez la MÊME valeur ici.
-String get _seedPassword {
-  final v = Platform.environment['SEED_PASSWORD'];
-  if (v == null || v.isEmpty) {
-    throw StateError(
-      'SEED_PASSWORD absent. Ce test se connecte aux comptes créés par '
-      'scripts/seed-demo.mjs, dont le mot de passe est tiré au hasard. '
-      'Relancez le seed avec SEED_PASSWORD=<valeur> et exportez la même '
-      'valeur avant de lancer cet e2e.',
-    );
+/// ⚠ CE TEST SE CONNECTAIT AU COMPTE DE DÉMONSTRATION, dont le mot de passe est
+/// tiré au hasard à chaque exécution du seed — il fallait donc rejouer le seed
+/// et exporter la même valeur, et le test échouait sinon sans que la cause soit
+/// lisible. Les comptes de recette ont un mot de passe FIXE, posé par
+/// `npm run comptes:recette`, et ils n'appartiennent à aucune démonstration :
+/// s'en servir n'abîme plus rien.
+///
+/// Le mot de passe n'est ni affiché ni journalisé.
+String get _recettePassword {
+  final f = File('$_backendDir/.env');
+  if (f.existsSync()) {
+    for (final l in f.readAsLinesSync()) {
+      if (l.startsWith('RECETTE_PASSWORD=')) {
+        final v = l.substring('RECETTE_PASSWORD='.length).trim();
+        if (v.isNotEmpty) return v;
+      }
+    }
   }
-  return v;
+  throw StateError(
+    'RECETTE_PASSWORD introuvable dans $_backendDir/.env. '
+    'Lancez `npm run comptes:recette` dans le dépôt backend.',
+  );
 }
 
 Future<String> _backendScript(List<String> args) async {
@@ -195,11 +204,11 @@ void main() {
       expect(state.stage, AppStage.login);
 
       // ── Écran 2 : connexion réelle (JWT) ──────────────────────────────────────
-      final badLogin = await state.login(email: 'awa@exemple.bf', password: 'mauvais');
+      final badLogin = await state.login(email: 'recette-etu@exemple.bf', password: 'mauvais');
       expect(badLogin, isNotNull, reason: 'un mauvais mot de passe doit être refusé');
       expect(state.stage, AppStage.login);
 
-      final err = await state.login(email: 'awa@exemple.bf', password: _seedPassword);
+      final err = await state.login(email: 'recette-etu@exemple.bf', password: _recettePassword);
       expect(err, isNull, reason: 'connexion refusée : $err');
       expect(state.stage, AppStage.shelf);
       expect(state.session!.userId, fx['userId']);

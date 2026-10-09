@@ -17,6 +17,7 @@ void main() {
   String notice({
     List<Map<String, dynamic>> items = const [],
     bool digital = false,
+    bool? offlineReady,
     String fileFormat = 'PDF',
     String? embargoUntil,
     Map<String, dynamic>? provenance,
@@ -32,6 +33,7 @@ void main() {
     Map<String, dynamic>? availability,
   }) =>
       jsonEncode({
+        'offlineReady': ?offlineReady,
         'id': 'bdefba53-70ee-4214-b83f-a4cc7f6bde75',
         'title': 'Droit constitutionnel burkinabè',
         'author': 'Traoré, Awa',
@@ -466,4 +468,37 @@ void main() {
     });
   });
 
+  group('⚠ « Disponible hors ligne » est une PROMESSE — le serveur la tient', () {
+    testWidgets('offlineReady = true : le badge s’affiche', (tester) async {
+      noticeJson = notice(items: [exemplaire('AVAILABLE')], digital: true, offlineReady: true);
+      await monter(tester);
+      expect(find.text('Disponible hors ligne'), findsOneWidget);
+    });
+
+    testWidgets('⚠ offlineReady = false : PAS de badge, même avec un PDF',
+        (tester) async {
+      // Le déduire du format annoncerait la lecture sans réseau pour un fichier
+      // qu'aucun appareil ne peut ouvrir — la copie n'est pas préparée.
+      noticeJson = notice(items: [exemplaire('AVAILABLE')], digital: true, offlineReady: false);
+      await monter(tester);
+      expect(find.text('Disponible hors ligne'), findsNothing);
+    });
+
+    testWidgets('⚠ champ ABSENT (serveur ancien) : pas de badge non plus',
+        (tester) async {
+      // Un badge absent vaut mieux qu'un badge faux.
+      noticeJson = notice(items: [exemplaire('AVAILABLE')], digital: true);
+      await monter(tester);
+      expect(find.text('Disponible hors ligne'), findsNothing);
+    });
+
+    testWidgets('« Sur cet appareil » est AUTRE CHOSE, et se distingue',
+        (tester) async {
+      // « préparé par la bibliothèque » n'est pas « déjà sur mon téléphone ».
+      noticeJson = notice(items: [exemplaire('AVAILABLE')], digital: true, offlineReady: true);
+      await monter(tester, estLocal: true);
+      expect(find.text('Disponible hors ligne'), findsOneWidget);
+      expect(find.text('Sur cet appareil'), findsOneWidget);
+    });
+  });
 }

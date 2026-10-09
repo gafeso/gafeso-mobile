@@ -441,7 +441,16 @@ class _RecordScreenState extends State<RecordScreen> {
       if ((n.typeLisible ?? '').isNotEmpty) (n.typeLisible!, false),
       if (n.publishYear != null) ('${n.publishYear}', false),
       if (p != null) ('${p.pages} pages', false),
-      if (_estLocal) ('Disponible hors ligne', true),
+      // ⚠ « DISPONIBLE HORS LIGNE » EST UNE PROMESSE, et c'est le SERVEUR qui
+      // la tient : `offlineReady` dit qu'une copie est réellement préparée
+      // (`enc_status = 'ready'`). Le déduire du format aurait annoncé la
+      // lecture sans réseau pour des fichiers qu'aucun appareil ne peut ouvrir.
+      // Champ absent (serveur antérieur à rc6) : pas de badge — un badge absent
+      // vaut mieux qu'un badge faux.
+      if (n.offlineReady == true) ('Disponible hors ligne', true),
+      // Autre chose, et il faut le distinguer : « préparé par la bibliothèque »
+      // n'est pas « déjà sur mon téléphone ».
+      if (_estLocal) ('Sur cet appareil', true),
     ];
     if (items.isEmpty) return const SizedBox.shrink();
     return Wrap(

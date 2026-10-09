@@ -232,6 +232,7 @@ class RecordDetail {
     this.contributors = const [],
     this.keywords = const [],
     this.availability,
+    this.offlineReady,
   });
 
   final String id;
@@ -276,6 +277,16 @@ class RecordDetail {
 
   /// Disponibilité calculée par le serveur. `null` pour un visiteur non membre.
   final Availability? availability;
+
+  /// ⚠ **LE SERVEUR SAIT, ET IL LE DIT** (backend rc6). `offlineReady` vaut vrai
+  /// quand une copie numérique est réellement **préparée** pour la lecture hors
+  /// connexion — `enc_status = 'ready'` de son côté.
+  ///
+  /// `null` = le serveur ne publie pas le champ (antérieur à rc6). On ne devine
+  /// alors pas : on retombe sur ce qu'on sait déjà déduire du format, et le
+  /// badge « Disponible hors ligne » ne s'affiche pas. Un badge absent vaut
+  /// mieux qu'un badge faux — c'est lui qui promet la lecture sans réseau.
+  final bool? offlineReady;
 
   /// Libellé lisible du type. La base stocke des constantes en minuscules ;
   /// « these » affiché tel quel n'est pas français.
@@ -357,6 +368,7 @@ class RecordDetail {
           .toList(),
       keywords: ((j['keywords'] as List?) ?? const []).whereType<String>().toList(),
       availability: Availability.fromJson(j['availability']),
+      offlineReady: j['offlineReady'] as bool?,
     );
   }
 }

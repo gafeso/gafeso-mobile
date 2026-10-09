@@ -53,6 +53,11 @@ class GafesoApi {
   /// circulation inactive dans son propre refus.
   void Function()? onCirculationInactive;
 
+  /// Appelé quand une route de circulation RÉPOND. C'est la preuve qu'il y a un
+  /// comptoir, et elle doit pouvoir annuler un refus antérieur — sans quoi un
+  /// hoquet d'une milliseconde condamne le menu jusqu'à la relance de l'app.
+  void Function()? onCirculationConfirmee;
+
   void close() => _client.close(force: true);
 
   Map<String, String> _headers() => {
@@ -185,13 +190,44 @@ class GafesoApi {
   // ── Espace lecteur ──────────────────────────────────────────────────────
 
   /// Prêts en cours (formes vérifiées sur l'API réelle — voir models/reader_space.dart).
-  Future<Object> readerLoans() async => (await _send('GET', '/reader/loans')) as Object;
+  Future<Object> readerLoans() async => _circulationRepond(_send('GET', '/reader/loans'));
 
-  Future<Object> readerHolds() async => (await _send('GET', '/reader/holds')) as Object;
+  Future<Object> readerHolds() async => _circulationRepond(_send('GET', '/reader/holds'));
 
   /// Carte de lecteur. Le serveur la CRÉE si le compte n'en a pas encore —
   /// même point de création que la réservation, jamais un second chemin.
-  Future<Object> readerCard() async => (await _send('GET', '/reader/card')) as Object;
+  Future<Object> readerCard() async => _circulationRepond(_send('GET', '/reader/card'));
+
+  /// Enveloppe les routes de circulation : une réponse est un signal POSITIF.
+  Future<Object> _circulationRepond(Future<dynamic> appel) async {
+    final r = await appel;
+    onCirculationConfirmee?.call();
+    return r as Object;
+  }
+
+  /// Identité publique de l'établissement — **sans jeton**.
+  ///
+  /// ⚠ C'EST LA SOURCE DE VÉRITÉ POUR LA CIRCULATION, depuis le backend rc6.
+  /// Elle répond avant toute connexion, ce qui permet de ne pas promettre un
+  /// comptoir dès l'écran d'accueil, et elle est servie à l'anonyme — là où
+  /// `GET /modules` rend 401 (mesuré le 08/10).
+  ///
+  /// Rend `null` quand le champ est ABSENT — serveur antérieur à rc6. C'est un
+  /// troisième état, et il compte : « je ne sais pas » n'est pas « il n'y a pas
+  /// de circulation ». Dans ce cas seulement, le repli par refus de route
+  /// reprend la main.
+  Future<bool?> circulationPublique() async {
+    try {
+      final r = await _send('GET', '/tenancy/current');
+      if (r is! Map) return null;
+      final v = r['circulationActive'];
+      return v is bool ? v : null;
+    } catch (_) {
+      // Hors ligne, ou route absente : on ne sait pas, et on le dit en rendant
+      // `null`. Surtout pas `false` — ce serait amputer le menu sur une panne.
+      return null;
+    }
+  }
 
   /// Modules ACTIFS de l'établissement.
   ///

@@ -69,9 +69,31 @@ class AppState extends ChangeNotifier {
   /// comptoir pendant qu'on consulte son étagère.
   bool circulationRefusee = false;
 
-  bool get circulationActive =>
-      !circulationRefusee &&
-      (modulesActifs == null || modulesActifs!.contains('circulation'));
+  /// ⚠ **SOURCE DE VÉRITÉ** : `circulationActive` de `GET /tenancy/current`
+  /// (backend rc6). Servi SANS jeton, donc disponible avant même la connexion.
+  ///
+  /// `null` = le serveur ne publie pas le champ, ou on ne l'a pas encore lu.
+  /// Trois états, et le troisième compte : « je ne sais pas » n'est pas « il
+  /// n'y a pas de comptoir ».
+  bool? circulationDuServeur;
+
+  /// La circulation physique est-elle en service ici ?
+  ///
+  /// ⚠ L'ORDRE DES SOURCES EST LE CORRECTIF. Le refus de route était seul juge,
+  /// et il est IRRÉVERSIBLE pour la session : un refus transitoire d'une
+  /// milliseconde amputait le menu d'un établissement qui a bel et bien un
+  /// comptoir, jusqu'à la relance de l'app — constaté une fois sur
+  /// `recette-etu@`, qui a pourtant un prêt et une réservation.
+  ///
+  /// Désormais : si le serveur répond, SA réponse tranche, et le refus de route
+  /// ne pèse plus rien. Le repli par refus ne sert qu'aux serveurs antérieurs à
+  /// rc6, qui ne publient pas le champ.
+  bool get circulationActive {
+    final duServeur = circulationDuServeur;
+    if (duServeur != null) return duServeur;
+    return !circulationRefusee &&
+        (modulesActifs == null || modulesActifs!.contains('circulation'));
+  }
 
   /// Titre de l'étagère.
   ///
@@ -91,8 +113,34 @@ class AppState extends ChangeNotifier {
   /// n'est pas une panne, et il n'y a RIEN à annoncer à l'usager — on retire
   /// une promesse qu'on n'aurait pas dû faire, on ne lui signale pas un échec.
   void circulationInactive() {
+    // ⚠ Un refus ne contredit pas le serveur. S'il a dit que la circulation est
+    // active, c'est lui qui a raison : le refus vient d'ailleurs — droit
+    // personnel, incident passager — et amputer le menu serait une faute.
+    if (circulationDuServeur == true) return;
     if (circulationRefusee) return;
     circulationRefusee = true;
+    notifyListeners();
+  }
+
+  /// ⚠ **UN SIGNAL POSITIF ANNULE LA BASCULE.** Une route `/reader/*` qui
+  /// répond 200 prouve qu'il y a un comptoir, quoi qu'un refus antérieur ait
+  /// laissé croire. Sans cela, le premier hoquet du serveur condamnait le menu
+  /// jusqu'à la relance.
+  void circulationConfirmee() {
+    if (!circulationRefusee) return;
+    circulationRefusee = false;
+    circulationDuServeur = null;
+    notifyListeners();
+  }
+
+  /// Lit la source de vérité. Silencieux, et sans jeton : l'app peut la
+  /// connaître avant la connexion.
+  Future<void> chargerCirculation() async {
+    final v = await _api?.circulationPublique();
+    if (v == null) return; // on ne sait pas : on ne change rien
+    if (v == circulationDuServeur) return;
+    circulationDuServeur = v;
+    if (v) circulationRefusee = false;
     notifyListeners();
   }
 
@@ -135,6 +183,7 @@ class AppState extends ChangeNotifier {
       tenantSlug = session!.tenantSlug;
       _wire(session!.tenantSlug, token: session!.token);
       unawaited(_chargerModules());
+      unawaited(chargerCirculation());
       stage = AppStage.shelf;
     } else if (tenantSlug != null) {
       _wire(tenantSlug!);
@@ -160,6 +209,7 @@ class AppState extends ChangeNotifier {
     // l'état applicatif en tire la conséquence, une seule fois.
     _api!.onSessionPerdue = () => unawaited(sessionExpiree());
     _api!.onCirculationInactive = circulationInactive;
+    _api!.onCirculationConfirmee = circulationConfirmee;
     _offline = OfflineService(api: _api!, storageDir: storageDir);
   }
 
@@ -248,6 +298,7 @@ class AppState extends ChangeNotifier {
           // L'état des modules conditionne le menu : on le demande une fois,
           // juste après la connexion, sans bloquer l'entrée dans l'app.
           unawaited(_chargerModules());
+      unawaited(chargerCirculation());
           stage = AppStage.shelf;
           notifyListeners();
           return null;
@@ -267,6 +318,7 @@ class AppState extends ChangeNotifier {
     await covers.vider();
     modulesActifs = null;
     circulationRefusee = false;
+    circulationDuServeur = null;
     await sessions.clearSession();
     session = null;
     _wire(tenantSlug!);
@@ -281,6 +333,7 @@ class AppState extends ChangeNotifier {
     await covers.vider();
     modulesActifs = null;
     circulationRefusee = false;
+    circulationDuServeur = null;
     await sessions.clearAll();
     session = null;
     tenantSlug = null;

@@ -13,6 +13,18 @@
 ///  - ✅ la licence émise est **exploitable par le code appareil** : signature Ed25519 vérifiée
 ///    et CEK déballée en **EC-KEM** par le *vrai* code Kotlin (harnais JVM), qui déchiffre
 ///    ensuite le blob jusqu'à `%PDF` ;
+/// ⚠ **PLUS AUCUN JETON FABRIQUÉ.** Ce test se connectait avec le jeton que la
+/// fixture backend imprimait, signé avec `JWT_SECRET` — un jeton qu'aucun
+/// usager n'obtiendrait jamais, et une porte de fabrication de session ouverte
+/// dans un script de développement. Il passe désormais par `POST /auth/login`
+/// avec les comptes de recette (`recette-etu@` pour lire, `recette-bib@` pour
+/// révoquer), exactement comme l'application et comme le comptoir. Le backend
+/// peut retirer l'impression du jeton.
+///
+/// Conséquence heureuse : le document éprouvé est celui que le script de
+/// recette a préparé par les routes du produit, et non une notice écrite
+/// directement en base.
+///
 ///  - ❌ il ne prouve PAS l'**Android Keystore** (`PURPOSE_AGREE_KEY` sur SoC réel) : la clé
 ///    d'appareil est ici un fichier openssl, pas le keystore. C'est le résiduel on-device
 ///    assumé par l'amendement, à plier en session device.
@@ -33,25 +45,27 @@ final _java = '$_home/mobiletools/jdk/bin/java';
 final _kotlinLib = '$_home/mobiletools/gradle-8.9/lib';
 final _xvec = '$_home/mobiletools/xvec';
 
-/// Lance un script ts-node du backend (env chargé via dotenv comme les tests backend).
-Future<String> _backendScript(List<String> args) async {
-  final res = await Process.run(
-    'npx',
-    [
-      'dotenv', '-e', '../../.env', '--',
-      'npx', 'ts-node', '--transpile-only',
-      '--compiler-options', '{"module":"commonjs"}',
-      'scripts/mobile-e2e-fixture.ts',
-      ...args,
-    ],
-    workingDirectory: '$_backendDir/apps/api',
-    environment: {...Platform.environment, 'TS_NODE_TRANSPILE_ONLY': '1'},
-  );
-  if (res.exitCode != 0) {
-    throw StateError('fixture ${args.first} a échoué : ${res.stderr}\n${res.stdout}');
+/// Mot de passe des comptes de recette, lu dans le `.env` du backend.
+///
+/// ⚠ Il n'est ni affiché, ni journalisé, ni écrit ailleurs : un secret qu'un
+/// test imprime finit dans une sortie de CI que personne ne relit.
+String _recettePassword() {
+  final f = File('$_backendDir/.env');
+  if (!f.existsSync()) throw StateError('.env backend introuvable : ${f.path}');
+  for (final l in f.readAsLinesSync()) {
+    if (l.startsWith('RECETTE_PASSWORD=')) {
+      return l.substring('RECETTE_PASSWORD='.length).trim();
+    }
   }
-  return (res.stdout as String).trim().split('\n').last;
+  throw StateError('RECETTE_PASSWORD absent du .env backend — '
+      'lancer `npm run comptes:recette` dans le dépôt backend');
 }
+
+// ⚠ `_backendScript` A DISPARU, ET C'EST LE POINT. Ce test n'appelle plus
+// AUCUN script du backend : il se connecte, lit l'étagère que le script de
+// recette a garnie par les routes du produit, et révoque par la route du
+// produit. Plus de jeton fabriqué, plus d'écriture directe en base.
+
 
 /// Démarre l'API Nest (harness du backend) et renvoie son port.
 Future<(Process, int)> _startApi() async {
@@ -84,7 +98,9 @@ void main() {
   group('Étape 2 — client HTTP offline (sans téléphone)', skip: !_run, () {
     late Process api;
     late GafesoApi client;
-    late Map<String, dynamic> fx;
+    late String userId;
+    late String baseUrl;
+    late GafesoApi bib;
     late Directory tmp;
 
     // Clé « appareil » : EC P-256 générée par openssl (tient le rôle du keystore, absent hors device).
@@ -105,19 +121,26 @@ void main() {
       await Process.run('openssl', ['ec', '-in', pem.path, '-pubout', '-outform', 'DER', '-out', pubDer.path]);
       devicePubB64 = base64Encode(await pubDer.readAsBytes());
 
-      fx = jsonDecode(await _backendScript(['create'])) as Map<String, dynamic>;
-      client = GafesoApi(
-        baseUrl: 'http://127.0.0.1:${started.$2}',
-        tenantSlug: fx['tenant'] as String,
-        token: fx['token'] as String,
-      );
+      final base = 'http://127.0.0.1:${started.$2}';
+      final mdp = _recettePassword();
+
+      // ⚠ VRAIE CONNEXION, comme l'application. Aucun jeton fabriqué.
+      client = GafesoApi(baseUrl: base, tenantSlug: 'zinda');
+      final rEtu = await client.login(email: 'recette-etu@exemple.bf', password: mdp);
+      expect(rEtu.accessToken, isNotNull,
+          reason: 'recette-etu@ ne se connecte pas — `npm run comptes:recette` ?');
+      userId = rEtu.userId!;
+
+      // Le comptoir : c'est lui qui a le droit de révoquer (catalogue.gerer).
+      bib = GafesoApi(baseUrl: base, tenantSlug: 'zinda');
+      final rBib = await bib.login(email: 'recette-bib@exemple.bf', password: mdp);
+      expect(rBib.accessToken, isNotNull, reason: 'recette-bib@ ne se connecte pas');
+      baseUrl = base;
     });
 
     tearDownAll(() async {
       client.close();
-      try {
-        await _backendScript(['cleanup', jsonEncode(fx)]);
-      } catch (_) {/* tolérant */}
+      bib.close();
       api.kill(ProcessSignal.sigterm);
       if (tmp.existsSync()) tmp.deleteSync(recursive: true);
     });
@@ -130,16 +153,20 @@ void main() {
       );
       expect(deviceId, isNotEmpty);
 
-      // 2) L'étagère expose bien le document préparé.
+      // 2) L'étagère expose le document que le script de recette a préparé,
+      //    par les routes du produit. On ne le fabrique pas, on le CONSTATE.
       final shelf = await client.myDocuments();
-      expect(shelf.map((d) => d.docId), contains(fx['docId']));
+      expect(shelf, isNotEmpty,
+          reason: 'recette-etu@ n’a aucun document hors ligne préparé — '
+              'relancer `npm run comptes:recette`');
+      final docId = shelf.first.docId;
 
       // 3) Émission de la licence (le serveur vérifie le droit réel).
-      final lic = await client.issueLicense(docId: fx['docId'] as String, deviceId: deviceId);
+      final lic = await client.issueLicense(docId: docId, deviceId: deviceId);
       expect(lic.body['v'], 1, reason: 'version de licence EC-KEM');
       expect(lic.tenant, 'zinda');
       expect(lic.deviceId, deviceId);
-      expect(lic.userId, fx['userId']);
+      expect(lic.userId, userId);
 
       // L'enveloppe est bien de l'EC-KEM v1 (et pas un chiffré RSA brut).
       final wrapped = jsonDecode(lic.wrappedCek) as Map<String, dynamic>;
@@ -179,9 +206,18 @@ void main() {
       expect(jvm.stdout, contains('sig=true'));
       expect(jvm.stdout, contains('head=%PDF-'));
 
-      // 7) Révocation : on retire le droit en base → le re-check passe à revoked ET purge.
-      await _backendScript(['revoke', fx['accessRuleId'] as String]);
-      fx.remove('accessRuleId');
+      // 7) Révocation PAR LA ROUTE DU PRODUIT, avec le compte du comptoir —
+      //    `catalogue.gerer`. Plus d'écriture directe en base : on révoque comme
+      //    un bibliothécaire révoque, et c'est ce chemin-là qu'il faut éprouver.
+      final req = await HttpClient().postUrl(
+        Uri.parse('$baseUrl/offline/licenses/${lic.licenseId}/revoke'),
+      );
+      req.headers.set('X-Tenant', 'zinda');
+      req.headers.set('Authorization', 'Bearer ${bib.token}');
+      final rep = await req.close();
+      await rep.drain<void>();
+      expect(rep.statusCode, lessThan(400), reason: 'révocation refusée (${rep.statusCode})');
+
       expect(await client.licenseStatus(lic.licenseId), 'revoked');
 
       // 8) Le blob n'est plus téléchargeable (licence non active).
