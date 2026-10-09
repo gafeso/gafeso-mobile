@@ -543,13 +543,37 @@ class BlobLocation {
 
 /// Entrée de l'étagère.
 class ShelfDocument {
-  ShelfDocument({required this.docId, required this.title, required this.fileFormat});
+  ShelfDocument({
+    required this.docId,
+    required this.title,
+    required this.fileFormat,
+    this.auteur,
+    this.domaine,
+    this.annee,
+  });
+
   final String docId;
   final String title;
   final String fileFormat;
+
+  /// ⚠ **SERVIS PAR LA ROUTE DEPUIS LE BACKEND rc8.** Jusque-là,
+  /// `GET /offline/my-documents` ne rendait que `{docId, title, fileFormat}`,
+  /// et l'étagère ne pouvait composer que des couvertures au titre seul.
+  /// Vérifié avant d'y toucher : 127 documents sur 127 portent les trois
+  /// champs, aucun vide.
+  ///
+  /// Restent facultatifs : un autre établissement peut cataloguer sans auteur
+  /// ni année, et un champ absent ne s'invente pas.
+  final String? auteur;
+  final String? domaine;
+  final int? annee;
+
   factory ShelfDocument.fromJson(Map<String, dynamic> j) => ShelfDocument(
         docId: j['docId'] as String,
         title: j['title'] as String,
         fileFormat: j['fileFormat'] as String,
+        auteur: j['auteur'] as String?,
+        domaine: j['domaine'] as String?,
+        annee: (j['annee'] as num?)?.toInt(),
       );
 }

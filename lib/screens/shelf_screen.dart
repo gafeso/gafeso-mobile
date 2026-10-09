@@ -12,6 +12,7 @@ import 'search_screen.dart';
 import '../api/gafeso_api.dart';
 import '../app_state.dart';
 import '../session/library_store.dart';
+import '../session/metadonnees_document.dart';
 import '../session/progress_store.dart';
 import '../widgets/couverture_generee.dart';
 import 'reader_screen.dart';
@@ -112,7 +113,14 @@ class _ShelfScreenState extends State<ShelfScreen> {
   Future<void> _download(ShelfDocument doc) async {
     setState(() => _busy.add(doc.docId));
     try {
-      await widget.state.offline.download(docId: doc.docId, title: doc.title);
+      await widget.state.offline.download(
+        docId: doc.docId,
+        title: doc.title,
+        // Servis par la route depuis rc8 : plus rien à aller chercher ailleurs.
+        auteur: doc.auteur,
+        domaine: doc.domaine,
+        annee: doc.annee,
+      );
       _local = await widget.state.offline.library.readAll();
       _notice = null;
     } on GafesoApiException catch (e) {
@@ -391,6 +399,20 @@ class _ShelfScreenState extends State<ShelfScreen> {
                               for (final id in ids)
                                 _DocTile(
                                   title: titles[id] ?? id,
+                                  // ⚠ COUVERTURE AUSSI DANS LA LISTE. Elle y
+                                  // manquait : l'étagère restait une colonne
+                                  // d'icônes PDF identiques, là où la teinte du
+                                  // domaine permet de retrouver un document
+                                  // d'un coup d'œil. Possible seulement depuis
+                                  // que la route porte le domaine (rc8).
+                                  couverture: CouvertureGeneree(
+                                    titre: titles[id] ?? id,
+                                    auteur: _meta(id).auteur,
+                                    annee: _meta(id).annee,
+                                    domaine: _meta(id).domaine,
+                                    largeur: 40,
+                                    hauteur: 56,
+                                  ),
                                   downloaded: _local.containsKey(id),
                                   expiree: _local[id]?.estExpiree(DateTime.now()) ?? false,
                                   finDeBail: _local[id]?.expiresAt,
@@ -416,6 +438,15 @@ class _ShelfScreenState extends State<ShelfScreen> {
   }
 
   // ── Filtres, tri, compteurs ───────────────────────────────────────────────
+
+  /// Voir `metadonneesDocument` : la route d'abord, l'appareil ensuite, et
+  /// champ par champ. La règle vit hors de cet écran parce qu'elle s'éprouve
+  /// sans en monter un, et parce qu'elle sert à deux endroits.
+  ({String? auteur, String? domaine, int? annee}) _meta(String id) =>
+      metadonneesDocument(
+        distant: _remote.where((d) => d.docId == id).firstOrNull,
+        local: _local[id],
+      );
 
   /// Un filtre est-il posé ? Sert à le SIGNALER, pas à le décorer.
   bool get _filtreActif =>
@@ -541,17 +572,17 @@ class _ShelfScreenState extends State<ShelfScreen> {
                           borderRadius: BorderRadius.circular(4),
                           child: CouvertureGeneree(
                             titre: titles[p.docId] ?? d?.title ?? '',
-                            auteur: d?.auteur,
+                            auteur: _meta(p.docId).auteur,
                             type: d?.type,
-                            annee: d?.annee,
-                            domaine: d?.domaine,
+                            annee: _meta(p.docId).annee,
+                            domaine: _meta(p.docId).domaine,
                             largeur: 96,
                             hauteur: 96,
                           ),
                         ),
                         const SizedBox(height: 6),
-                        if (d?.auteur != null)
-                          Text(d!.auteur!,
+                        if (_meta(p.docId).auteur != null)
+                          Text(_meta(p.docId).auteur!,
                               maxLines: 1,
                               overflow: TextOverflow.ellipsis,
                               style: TextStyle(
@@ -719,6 +750,7 @@ class _ShelfScreenState extends State<ShelfScreen> {
 class _DocTile extends StatelessWidget {
   const _DocTile({
     required this.title,
+    required this.couverture,
     required this.downloaded,
     required this.busy,
     required this.onDownload,
@@ -730,6 +762,7 @@ class _DocTile extends StatelessWidget {
   });
 
   final String title;
+  final Widget couverture;
   final bool downloaded;
   final bool busy;
 
@@ -805,17 +838,38 @@ class _DocTile extends StatelessWidget {
     }
 
     return ListTile(
-      leading: Icon(
-        icone,
-        // L'ORANGE DES PAGES marque ce qui est EMPORTÉ : c'est le geste propre
-        // à ce produit — un document qu'on a sur soi, lisible sans réseau — et
-        // c'est le seul repère qui distingue d'un coup d'œil les lignes déjà
-        // disponibles des lignes à télécharger.
-        color: expiree && downloaded
-            ? context.gafeso.avertissement
-            : downloaded
-                ? GafesoMarque.orange
-                : null,
+      leading: SizedBox(
+        width: 40,
+        child: Stack(
+          clipBehavior: Clip.none,
+          children: [
+            ClipRRect(borderRadius: BorderRadius.circular(3), child: couverture),
+            // L'ORANGE DES PAGES marque ce qui est EMPORTÉ : c'est le geste
+            // propre à ce produit — un document qu'on a sur soi, lisible sans
+            // réseau. La pastille se POSE sur la couverture au lieu de la
+            // remplacer : on garde l'identification par la teinte du domaine ET
+            // le repère « déjà là ».
+            if (downloaded)
+              Positioned(
+                right: -5,
+                bottom: -3,
+                child: Container(
+                  decoration: BoxDecoration(
+                    color: context.couleurs.surface,
+                    shape: BoxShape.circle,
+                  ),
+                  padding: const EdgeInsets.all(1),
+                  child: Icon(
+                    icone,
+                    size: 15,
+                    color: expiree
+                        ? context.gafeso.avertissement
+                        : GafesoMarque.orange,
+                  ),
+                ),
+              ),
+          ],
+        ),
       ),
       title: Text(title),
       subtitle: Text(

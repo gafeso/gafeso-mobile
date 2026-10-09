@@ -66,9 +66,17 @@ class OfflineService {
       await api.downloadBlob(url: blob.url, dest: dest);
     }
 
-    // ⚠ On ne PERD pas ce qu'on savait déjà. Un renouvellement part souvent de
-    // l'étagère, qui n'a que le titre : écraser l'auteur et le domaine recopiés
-    // au premier téléchargement appauvrirait la fiche à chaque renouvellement.
+    // ⚠ CE N'EST PLUS UNE RECOPIE DE SECOURS, C'EST LE CACHE HORS LIGNE.
+    //
+    // Ces champs venaient de la fiche parce que `GET /offline/my-documents` ne
+    // les servait pas. Depuis le backend rc8, la route les porte — et c'est
+    // l'étagère qui les transmet ici. Ils restent écrits sur l'appareil pour
+    // une raison différente et qui demeure : SANS RÉSEAU, la route ne répond
+    // pas, et « Lectures en cours » doit garder son auteur et sa teinte.
+    //
+    // On ne perd pas non plus ce qu'on savait déjà : un renouvellement peut
+    // partir d'un contexte plus pauvre, et écraser par `null` appauvrirait
+    // l'étagère à chaque renouvellement.
     final ancien = (await library.readAll())[docId];
     final doc = LocalDocument(
       docId: docId,
