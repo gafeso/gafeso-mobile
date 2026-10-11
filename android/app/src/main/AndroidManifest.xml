@@ -32,6 +32,24 @@
                 <action android:name="android.intent.action.MAIN"/>
                 <category android:name="android.intent.category.LAUNCHER"/>
             </intent-filter>
+            <!-- Lien d'application : gafeso://notice?url=<adresse de la notice>
+                 Ouvert depuis la page web de la bibliothèque, pour passer du
+                 catalogue consulté au navigateur à la fiche dans l'app.
+
+                 ⚠ SCHÉMA PROPRE, PAS UN LIEN http. Un App Link vérifié
+                 demanderait un fichier assetlinks.json sur CHAQUE domaine
+                 d'établissement — et chaque école a le sien. Un schéma
+                 gafeso:// marche partout, sans rien exiger des écoles.
+                 Le prix est connu : n'importe quelle application peut l'émettre,
+                 d'où le fait que l'adresse reçue soit soumise au SERVEUR
+                 (`/opac/scan`) exactement comme un QR scanné — jamais ouverte
+                 sur parole. -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW"/>
+                <category android:name="android.intent.category.DEFAULT"/>
+                <category android:name="android.intent.category.BROWSABLE"/>
+                <data android:scheme="gafeso" android:host="notice"/>
+            </intent-filter>
         </activity>
         <!-- Don't delete the meta-data below.
              This is used by the Flutter tool to generate GeneratedPluginRegistrant.java -->

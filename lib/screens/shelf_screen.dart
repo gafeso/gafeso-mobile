@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import '../theme/gafeso_theme.dart';
 
@@ -7,10 +8,12 @@ import '../cache/offline_cache.dart';
 import 'reader_space_screen.dart';
 import 'library_card_screen.dart';
 import 'a_propos_screen.dart';
+import 'qr_scan_screen.dart';
 import 'record_screen.dart';
 import 'search_screen.dart';
 
 import '../api/gafeso_api.dart';
+import '../api/scan.dart';
 import '../app_state.dart';
 import '../session/library_store.dart';
 import '../models/catalog.dart';
@@ -64,6 +67,30 @@ class _ShelfScreenState extends State<ShelfScreen> {
     super.initState();
     _load();
     unawaited(_lireAffichage());
+    _ecouterLesLiens();
+  }
+
+  /// Liens `gafeso://notice?url=…` — à l'ouverture, et pendant que l'app vit.
+  ///
+  /// ⚠ L'ADRESSE REÇUE EST SOUMISE AU SERVEUR, exactement comme un QR scanné.
+  /// N'importe quelle application peut émettre ce schéma : l'ouvrir sur parole
+  /// reviendrait à laisser un tiers choisir ce que l'app affiche.
+  void _ecouterLesLiens() {
+    const canal = MethodChannel('com.gafeso/device');
+    canal.setMethodCallHandler((call) async {
+      if (call.method != 'lienRecu') return null;
+      final url = (call.arguments as Map?)?['url'] as String?;
+      if (url != null && url.isNotEmpty && mounted) await ouvrirAdresse(url);
+      return null;
+    });
+    unawaited(() async {
+      try {
+        final url = await canal.invokeMethod<String>('lienInitial');
+        if (url != null && url.isNotEmpty && mounted) await ouvrirAdresse(url);
+      } catch (_) {
+        // Canal absent (tests) : l'écran s'ouvre normalement.
+      }
+    }());
   }
 
   Future<void> _lireAffichage() async {
@@ -345,6 +372,8 @@ class _ShelfScreenState extends State<ShelfScreen> {
             icon: Icon(_filtreActif ? Icons.filter_alt : Icons.more_vert),
             onSelected: (v) async {
               switch (v) {
+                case 'scanner':
+                  await _scanner();
                 case 'filtrer':
                   _ouvrirFiltres();
                 case 'actualiser':
@@ -364,6 +393,8 @@ class _ShelfScreenState extends State<ShelfScreen> {
               }
             },
             itemBuilder: (_) => [
+              const PopupMenuItem(value: 'scanner', child: Text('Scanner une étiquette')),
+              const PopupMenuDivider(),
               PopupMenuItem(
                 value: 'filtrer',
                 child: Text(_filtreActif ? 'Filtrer et trier ·' : 'Filtrer et trier'),
@@ -495,6 +526,194 @@ class _ShelfScreenState extends State<ShelfScreen> {
     }
     if (!mounted) return;
     await _open(n.id, n.title);
+  }
+
+  // ── Scanner un QR d'étiquette ─────────────────────────────────────────────
+
+  /// ⚠ LA PERMISSION CAMÉRA SE DEMANDE AU GESTE, ET ON DIT POURQUOI AVANT.
+  ///
+  /// Android affiche sa propre boîte, qui ne dit rien de l'usage : « Autoriser
+  /// Gafeso à prendre des photos ? ». Posée sans contexte, elle se refuse — et
+  /// un refus se rattrape mal, l'usager devant ensuite aller la rétablir dans
+  /// les réglages du système. On explique donc d'abord, en une phrase, puis on
+  /// la demande.
+  Future<void> _scanner() async {
+    final continuer = await showModalBottomSheet<bool>(
+      context: context,
+      showDragHandle: true,
+      builder: (ctx) => SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(20, 0, 20, 20),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  Icon(Icons.qr_code_scanner, color: context.couleurs.primary),
+                  const SizedBox(width: 10),
+                  const Text(
+                    'Scanner l’étiquette d’un livre',
+                    style: TextStyle(fontSize: 17, fontWeight: FontWeight.w600),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 12),
+              Text(
+                'La caméra sert UNIQUEMENT à lire le QR collé dans le livre, '
+                'pour ouvrir sa fiche. Aucune photo n’est prise, conservée ni '
+                'envoyée.',
+                style: TextStyle(
+                  fontSize: 13,
+                  height: 1.45,
+                  color: context.gafeso.texteSecondaire,
+                ),
+              ),
+              const SizedBox(height: 20),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.end,
+                children: [
+                  TextButton(
+                    onPressed: () => Navigator.of(ctx).pop(false),
+                    child: const Text('Annuler'),
+                  ),
+                  const SizedBox(width: 8),
+                  FilledButton(
+                    onPressed: () => Navigator.of(ctx).pop(true),
+                    child: const Text('Activer la caméra'),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+    if (continuer != true || !mounted) return;
+
+    final charge = await Navigator.of(context).push<String>(MaterialPageRoute(
+      builder: (_) => QrScanScreen(
+        titre: 'Scanner l’étiquette',
+        // Une adresse, et rien d'autre : le reste est ignoré en silence,
+        // l'usager continue de viser.
+        accepte: (c) => Uri.tryParse(c.trim())?.hasScheme ?? false,
+      ),
+    ));
+    if (charge == null || !mounted) return;
+    await ouvrirAdresse(charge);
+  }
+
+  /// Résout une adresse — scannée, ou reçue par un lien `gafeso://notice`.
+  Future<void> ouvrirAdresse(String adresse) async {
+    final r = await reconnaitreAdresse(
+      widget.state.api,
+      adresse,
+      dejaSurLAppareil: _local.containsKey,
+    );
+    if (!mounted) return;
+    switch (r) {
+      case ScanNotice(notice: final n):
+        final notice = RecordDetail.fromJson((n as Map).cast<String, dynamic>());
+        await Navigator.of(context).push(MaterialPageRoute(
+          builder: (_) => RecordScreen.from(
+            api: widget.state.api,
+            recordId: notice.id,
+            titleHint: notice.title,
+            covers: widget.state.covers,
+            origine: widget.state.origineServeur,
+            circulation: widget.state.circulationActive,
+            estLocal: _local.containsKey(notice.id),
+            progression: _progression[notice.id],
+            onOpenDigital: (ctx, d) => _depuisLaFiche(ctx, d),
+          ),
+        ));
+      case ScanDejaLa(docId: final id):
+        // ⚠ Hors ligne devant un rayonnage : le document est là, on l'ouvre.
+        await _open(id, titresConnus()[id] ?? id);
+      case ScanAutreEtablissement(message: final m, adresse: final a):
+        await _autreEtablissement(m, a);
+      case ScanInconnue(message: final m):
+        setState(() => _notice = m);
+      case ScanHorsLigne():
+        setState(() => _notice =
+            'Pas de réseau : ce document n’est pas sur cet appareil, il faudra '
+            'une connexion pour l’ouvrir.');
+    }
+  }
+
+  Map<String, String> titresConnus() => {
+        for (final d in _remote) d.docId: d.title,
+        for (final e in _local.entries) e.key: e.value.title,
+      };
+
+  /// Le livre existe — ailleurs.
+  Future<void> _autreEtablissement(String message, String adresse) async {
+    await showModalBottomSheet<void>(
+      context: context,
+      showDragHandle: true,
+      builder: (ctx) => SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(20, 0, 20, 20),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text(
+                'Une autre bibliothèque',
+                style: TextStyle(fontSize: 17, fontWeight: FontWeight.w600),
+              ),
+              const SizedBox(height: 10),
+              // ⚠ LA PHRASE EST CELLE DU SERVEUR. Lui seul sait quels domaines
+              // sont les siens, et il a déjà nommé l'établissement — la
+              // réécrire ici ferait dire à l'application quelque chose qu'elle
+              // ne sait pas.
+              Text(
+                message,
+                style: TextStyle(
+                  fontSize: 13,
+                  height: 1.45,
+                  color: context.gafeso.texteSecondaire,
+                ),
+              ),
+              const SizedBox(height: 18),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.end,
+                children: [
+                  TextButton(
+                    onPressed: () => Navigator.of(ctx).pop(),
+                    child: const Text('Fermer'),
+                  ),
+                  const SizedBox(width: 8),
+                  // ⚠ C'est l'ADRESSE SCANNÉE qu'on ouvre, pas un hôte
+                  // redécoupé du message : lire une adresse dans une phrase
+                  // destinée à un humain, c'est se lier à sa formulation.
+                  FilledButton.icon(
+                    onPressed: () {
+                      Navigator.of(ctx).pop();
+                      unawaited(_ouvrirDansLeNavigateur(adresse));
+                    },
+                    icon: const Icon(Icons.open_in_new, size: 18),
+                    label: const Text('Ouvrir dans le navigateur'),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Future<void> _ouvrirDansLeNavigateur(String adresse) async {
+    try {
+      await const MethodChannel('com.gafeso/device')
+          .invokeMethod('ouvrirLien', {'url': adresse});
+    } catch (_) {
+      if (mounted) {
+        setState(() => _notice = 'Impossible d’ouvrir le navigateur. '
+            'L’adresse est : $adresse');
+      }
+    }
   }
 
   /// Voir `metadonneesDocument` : la route d'abord, l'appareil ensuite, et

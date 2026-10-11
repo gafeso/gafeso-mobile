@@ -18,6 +18,28 @@ import io.flutter.plugin.common.MethodChannel
  */
 class MainActivity : FlutterActivity() {
 
+    /// Canal « appareil », gardé pour pousser un lien reçu APRÈS le démarrage.
+    private var canalAppareil: MethodChannel? = null
+
+    /// Adresse reçue par un lien `gafeso://notice?url=…` et pas encore lue par
+    /// Dart. ⚠ Elle ATTEND : l'intent arrive avant que Flutter soit prêt, et la
+    /// pousser trop tôt la perdrait sans que personne ne s'en aperçoive.
+    private var lienEnAttente: String? = null
+
+    private fun adresseDe(intent: android.content.Intent?): String? {
+        val data = intent?.data ?: return null
+        if (data.scheme != "gafeso" || data.host != "notice") return null
+        return data.getQueryParameter("url")?.takeIf { it.isNotBlank() }
+    }
+
+    override fun onNewIntent(intent: android.content.Intent) {
+        super.onNewIntent(intent)
+        val url = adresseDe(intent) ?: return
+        // L'app est déjà vivante : on pousse, Dart résoudra.
+        canalAppareil?.invokeMethod("lienRecu", mapOf("url" to url))
+            ?: run { lienEnAttente = url }
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         // ⚠ CAPTURE AUTORISÉE UNIQUEMENT POUR PRODUIRE LES VISUELS DE LA FICHE,
         // et seulement en DEBUG. `FLAG_SECURE` interdit la capture à TOUT LE
@@ -100,8 +122,10 @@ class MainActivity : FlutterActivity() {
         // Canal « appareil » (Étape 2) : expose la clé PUBLIQUE EC pour l'enregistrement et
         // mémorise l'identifiant attribué par le serveur (celui que la licence lie et qui sert
         // d'AAD au déballage EC-KEM). La clé privée ne sort JAMAIS du keystore.
-        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "com.gafeso/device")
-            .setMethodCallHandler { call, result ->
+        val device = MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "com.gafeso/device")
+        canalAppareil = device
+        lienEnAttente = adresseDe(intent)
+        device.setMethodCallHandler { call, result ->
                 try {
                     when (call.method) {
                         "publicKey" -> {
@@ -112,6 +136,15 @@ class MainActivity : FlutterActivity() {
                         // Répertoire privé de l'app (évite la dépendance path_provider, qui
                         // imposait en plus un NDK plus récent que celui du projet).
                         "appDir" -> result.success(filesDir.absolutePath)
+
+                        // Lien d'ouverture, consommé UNE FOIS : relire le même
+                        // au prochain démarrage rouvrirait une fiche que
+                        // personne n'a redemandée.
+                        "lienInitial" -> {
+                            val l = lienEnAttente
+                            lienEnAttente = null
+                            result.success(l)
+                        }
 
                         // Identité du build, pour l'écran « À propos ».
                         //
@@ -163,6 +196,32 @@ class MainActivity : FlutterActivity() {
                             result.success(true)
                         }
                         "clearDeviceId" -> { DeviceIdentity.clear(this); result.success(true) }
+
+                        // Ouvre une adresse dans le NAVIGATEUR du téléphone.
+                        //
+                        // ⚠ Sert à un seul cas : un QR scanné qui appartient à
+                        // une AUTRE bibliothèque. On ne peut pas l'ouvrir ici —
+                        // ce n'est pas notre catalogue — mais dire « ailleurs »
+                        // sans offrir d'y aller laisse l'étudiant devant un
+                        // livre qu'il tient en main.
+                        //
+                        // ⚠ ACTION_VIEW seulement, et sur une adresse http(s)
+                        // VENUE D'UN QR : jamais un schéma arbitraire, qui
+                        // ouvrirait des applications tierces à la demande d'un
+                        // code imprimé par n'importe qui.
+                        "ouvrirLien" -> {
+                            val url = call.argument<String>("url").orEmpty()
+                            val uri = runCatching { android.net.Uri.parse(url) }.getOrNull()
+                            if (uri == null || uri.scheme !in listOf("http", "https")) {
+                                result.error("URL", "adresse non ouvrable", null)
+                            } else {
+                                startActivity(
+                                    android.content.Intent(android.content.Intent.ACTION_VIEW, uri)
+                                        .addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK),
+                                )
+                                result.success(true)
+                            }
+                        }
                         else -> result.notImplemented()
                     }
                 } catch (e: Exception) {

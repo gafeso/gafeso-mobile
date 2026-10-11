@@ -12,7 +12,18 @@ import '../session/tenant_code.dart';
 /// La permission caméra est demandée par le plugin au premier démarrage du contrôleur ; en cas
 /// de refus, l'écran l'explique et propose la saisie manuelle.
 class QrScanScreen extends StatefulWidget {
-  const QrScanScreen({super.key});
+  const QrScanScreen({super.key, this.titre, this.accepte});
+
+  /// Titre de l'écran. Par défaut, le QR de l'école.
+  final String? titre;
+
+  /// ⚠ CE QUE CE SCANNER RETIENT. Par défaut, un code d'école ; l'étagère y
+  /// passe un prédicat d'adresse pour les QR d'étiquette.
+  ///
+  /// Le scanner ne DÉCIDE pas à la place de qui l'appelle : il rend la charge
+  /// utile brute dès qu'elle est acceptée. Rendre un slug extrait avait déjà
+  /// cassé l'écran serveur, qui a besoin de l'origine entière.
+  final bool Function(String charge)? accepte;
 
   @override
   State<QrScanScreen> createState() => _QrScanScreenState();
@@ -46,7 +57,9 @@ class _QrScanScreenState extends State<QrScanScreen> {
       //
       // Chaque appelant extrait désormais ce dont il a besoin. Un scanner ne
       // doit pas décider à la place de qui l'appelle.
-      if (TenantCode.parse(raw) != null || TenantCode.origin(raw) != null) {
+      final retenu = widget.accepte ??
+          (String c) => TenantCode.parse(c) != null || TenantCode.origin(c) != null;
+      if (retenu(raw)) {
         _done = true;
         Navigator.of(context).pop(raw);
         return;
@@ -57,7 +70,7 @@ class _QrScanScreenState extends State<QrScanScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('Scanner le QR de l’école')),
+      appBar: AppBar(title: Text(widget.titre ?? 'Scanner le QR de l’école')),
       body: Stack(
         children: [
           MobileScanner(

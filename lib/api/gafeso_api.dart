@@ -309,6 +309,14 @@ class GafesoApi {
     return (await _send('GET', '/opac/search?$query')) as Object;
   }
 
+  /// Reconnaît une adresse scannée. ⚠ C'est le SERVEUR qui décide : lui seul
+  /// sait quels domaines sont les siens (voir `lib/api/scan.dart`).
+  ///
+  /// 200 → la fiche · 409 → autre établissement, hôte nommé · 404 → illisible.
+  Future<Object> scan(String adresse) async =>
+      (await _send('GET', '/opac/scan?${Uri(queryParameters: {'url': adresse}).query}'))
+          as Object;
+
   Future<Object> catalogRecord(String id) async {
     final r = (await _send('GET', '/opac/records/$id')) as Object;
     // ⚠ `membersOnly: true` EST UN SIGNAL, PAS UNE DONNÉE.
