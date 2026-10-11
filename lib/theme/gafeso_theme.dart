@@ -67,6 +67,9 @@ class GafesoPalette extends ThemeExtension<GafesoPalette> {
     required this.surCarteSecondaire,
     required this.surCamera,
     required this.appuye,
+    required this.carteSurface,
+    required this.bandeLecteur,
+    required this.retrait,
   });
 
   /// Disponible, exemplaire présent, réservation prête, protection active.
@@ -113,6 +116,31 @@ class GafesoPalette extends ThemeExtension<GafesoPalette> {
   /// État appuyé — l'orange foncé de la marque.
   final Color appuye;
 
+  // ── Relief 2 : surfaces et accents de l'étagère ─────────────────────────
+  /// Fond d'une carte posée sur la surface (compteurs, « Continuer la
+  /// lecture », tuiles de la grille).
+  final Color carteSurface;
+
+  /// Bande d'information du lecteur, sous la barre verte. Plus sombre que la
+  /// barre pour se distinguer d'elle sans rompre la continuité.
+  final Color bandeLecteur;
+
+  /// Encre posée sur les aplats de marque : pastilles, bande du lecteur,
+  /// bouton de retrait. Toujours blanche, dans les deux thèmes — ces aplats ne
+  /// changent pas avec le mode, donc leur encre non plus.
+  Color get surAplatDeMarque => const Color(0xFFFFFFFF);
+
+  /// Voile posé sur une couverture pendant un téléchargement.
+  Color get voile => const Color(0x66000000);
+
+  /// Piste d'une barre de progression posée sur un aplat sombre.
+  Color get pisteSurAplat => const Color(0x33FFFFFF);
+
+  /// Rouge du RETRAIT. ⚠ Toujours en FOND, avec du texte blanc (6,69:1) :
+  /// posé comme texte sur une carte sombre il tombe à 2,37:1. Un geste
+  /// destructeur doit se lire dans les deux thèmes.
+  final Color retrait;
+
   @override
   GafesoPalette copyWith({
     Color? succes,
@@ -132,6 +160,9 @@ class GafesoPalette extends ThemeExtension<GafesoPalette> {
     Color? surCarteSecondaire,
     Color? surCamera,
     Color? appuye,
+    Color? carteSurface,
+    Color? bandeLecteur,
+    Color? retrait,
   }) =>
       GafesoPalette(
         succes: succes ?? this.succes,
@@ -151,6 +182,9 @@ class GafesoPalette extends ThemeExtension<GafesoPalette> {
         surCarteSecondaire: surCarteSecondaire ?? this.surCarteSecondaire,
         surCamera: surCamera ?? this.surCamera,
         appuye: appuye ?? this.appuye,
+        carteSurface: carteSurface ?? this.carteSurface,
+        bandeLecteur: bandeLecteur ?? this.bandeLecteur,
+        retrait: retrait ?? this.retrait,
       );
 
   @override
@@ -175,6 +209,9 @@ class GafesoPalette extends ThemeExtension<GafesoPalette> {
       surCarteSecondaire: m(surCarteSecondaire, autre.surCarteSecondaire),
       surCamera: m(surCamera, autre.surCamera),
       appuye: m(appuye, autre.appuye),
+      carteSurface: m(carteSurface, autre.carteSurface),
+      bandeLecteur: m(bandeLecteur, autre.bandeLecteur),
+      retrait: m(retrait, autre.retrait),
     );
   }
 
@@ -189,7 +226,17 @@ class GafesoPalette extends ThemeExtension<GafesoPalette> {
         ('erreur', surErreur, erreurFond),
         ('information', surInfo, infoFond),
         ('carte de lecteur', surCarte, carte),
+        ('texte principal sur carte', texteSurCarteSurface, carteSurface),
+        ('texte d’appoint sur carte', texteSecondaire, carteSurface),
+        ('bande du lecteur', Color(0xFFFFFFFF), bandeLecteur),
+        ('bouton Retirer', Color(0xFFFFFFFF), retrait),
       ];
+
+  /// Texte principal posé sur une carte. Même encre que sur la surface : les
+  /// deux fonds sont assez proches pour partager la couleur, et la mesure le
+  /// confirme (12,31:1 en sombre).
+  Color get texteSurCarteSurface =>
+      carteSurface.computeLuminance() > 0.5 ? const Color(0xFF1A1C1A) : const Color(0xFFE2E3DE);
 }
 
 const _paletteClaire = GafesoPalette(
@@ -210,6 +257,9 @@ const _paletteClaire = GafesoPalette(
   surCarteSecondaire: Color(0xFF5A5F55),
   surCamera: Color(0xFFFFFFFF),
   appuye: GafesoMarque.orangeFonce,
+  carteSurface: Color(0xFFFFFFFF),
+  bandeLecteur: Color(0xFF154A32),
+  retrait: Color(0xFFA8321F),
 );
 
 const _paletteSombre = GafesoPalette(
@@ -224,7 +274,8 @@ const _paletteSombre = GafesoPalette(
   info: Color(0xFFB8CBDC),
   infoFond: Color(0xFF1A242E),
   surInfo: Color(0xFFB8CBDC),
-  texteSecondaire: Color(0xFFA9AFA3),
+  // Relief 2 : gris vert, éprouvé à 8,56:1 sur le fond et 7,43:1 sur les cartes.
+  texteSecondaire: Color(0xFFA9B4AE),
   // ⚠ La carte reste BLANCHE en mode sombre : c'est une surface à scanner.
   carte: Color(0xFFFFFFFF),
   surCarte: Color(0xFF1A1C1A),
@@ -232,6 +283,11 @@ const _paletteSombre = GafesoPalette(
   surCarteSecondaire: Color(0xFF5A5F55),
   surCamera: Color(0xFFFFFFFF),
   appuye: GafesoMarque.orangeFonce,
+  // Relief 2 : cartes posées sur le fond, éprouvées à 12,31:1 pour l'encre et
+  // 7,43:1 pour le texte d'appoint.
+  carteSurface: Color(0xFF1C2420),
+  bandeLecteur: Color(0xFF154A32),
+  retrait: Color(0xFFA8321F),
 );
 
 /// `ColorScheme` clair. `fromSeed` donne l'harmonie Material 3 ; les rôles de
@@ -261,22 +317,25 @@ final _schemaSombre = ColorScheme.fromSeed(
   seedColor: GafesoMarque.vert,
   brightness: Brightness.dark,
 ).copyWith(
-  // En sombre, le vert de marque sert de TEINTE, pas de fond : à 2,43:1 sur
-  // #12140F il serait illisible. La barre garde le vert exact (voir plus bas) ;
-  // les textes et icônes prennent cette version éclaircie.
-  primary: const Color(0xFF7FD3A6),
+  // En sombre, le vert de marque sert de TEINTE, pas de fond : à 2,43:1 sur le
+  // fond il serait illisible. La barre garde le vert exact (voir plus bas) ;
+  // les textes et icônes prennent cette version éclaircie — Relief 2 l'arrête
+  // à #7FD1A8, mesurée à 10,09:1 sur le fond et 8,76:1 sur les cartes.
+  primary: const Color(0xFF7FD1A8),
   onPrimary: const Color(0xFF00391F),
   primaryContainer: GafesoMarque.vert,
   onPrimaryContainer: const Color(0xFFD7EBE0),
-  secondary: const Color(0xFFF0A868),
+  // Relief 2 : 8,65:1 sur le fond, 7,50:1 sur les cartes.
+  secondary: const Color(0xFFF0A066),
   onSecondary: const Color(0xFF4A2000),
   // ⚠ PAS `orangeFonce` ICI : #FFE2C9 sur #C4641F ne vaut que 3,27:1. L'orange
   // foncé est une teinte d'appui, pas un fond de texte — en sombre non plus.
   secondaryContainer: const Color(0xFF5A2D08),
   onSecondaryContainer: const Color(0xFFFFD9B8),
-  surface: const Color(0xFF12140F),
+  // Relief 2 : fond validé par Jean, encre mesurée à 14,18:1 dessus.
+  surface: const Color(0xFF111613),
   onSurface: const Color(0xFFE2E3DE),
-  onSurfaceVariant: const Color(0xFFC3C8BC),
+  onSurfaceVariant: const Color(0xFFA9B4AE),
 );
 
 ThemeData _construire(ColorScheme s, GafesoPalette p) {

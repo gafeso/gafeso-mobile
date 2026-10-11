@@ -39,9 +39,11 @@ void main() {
         ),
       );
       expect(find.text('Droit foncier rural'), findsOneWidget);
-      expect(find.text('Congo, Pauline'), findsOneWidget);
       expect(find.text('THESE'), findsOneWidget);
-      expect(find.text('2012'), findsOneWidget);
+      // ⚠ Auteur et année tiennent UNE ligne, sous le filet : deux lignes
+      // séparées poussaient le titre à trois lignes sur une tuile de grille,
+      // et c'est le titre qui identifie.
+      expect(find.text('Congo, Pauline · 2012'), findsOneWidget);
     });
 
     testWidgets('⚠ un champ ABSENT ne devient pas un tiret ni une valeur plausible',

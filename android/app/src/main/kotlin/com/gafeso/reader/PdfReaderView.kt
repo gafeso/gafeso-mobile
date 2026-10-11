@@ -182,6 +182,22 @@ class PdfReaderView(
      * un re-rendu de la page — pour un changement qui ne touche QUE l'affichage.
      * On repeint, et la position de lecture est conservée.
      */
+    /**
+     * Va à une page donnée.
+     *
+     * ⚠ AVEC ANIMATION : le glissement visible dit qu'on a changé de page. Un
+     * saut sec laisse croire que rien ne s'est passé, surtout sur un document
+     * dont deux pages se ressemblent.
+     *
+     * Borné au document : une progression enregistrée pour une version
+     * remplacée depuis pointerait au-delà.
+     */
+    fun allerA(page: Int) {
+        val vp = pager ?: return
+        val n = vp.adapter?.itemCount ?: return
+        vp.setCurrentItem(page.coerceIn(0, n - 1), true)
+    }
+
     fun changerMode(cle: String?) {
         mode = ModeLecture.depuis(cle)
         root.setBackgroundColor(mode.fond)

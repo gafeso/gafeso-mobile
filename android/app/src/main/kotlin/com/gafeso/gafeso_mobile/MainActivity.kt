@@ -61,6 +61,15 @@ class MainActivity : FlutterActivity() {
         }
         lecteur.setMethodCallHandler { call, result ->
             when (call.method) {
+                "allerA" -> {
+                    val page = call.argument<Int>("page")
+                    if (page == null) {
+                        result.error("ARG", "page manquante", null)
+                    } else {
+                        fabrique.vueCourante?.allerA(page)
+                        result.success(true)
+                    }
+                }
                 "setMode" -> {
                     fabrique.vueCourante?.changerMode(call.argument<String>("mode"))
                     result.success(true)

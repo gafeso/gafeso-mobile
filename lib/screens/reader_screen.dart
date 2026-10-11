@@ -105,56 +105,103 @@ class _ReaderScreenState extends State<ReaderScreen> {
             ],
           ),
         ],
-        // La progression tient dans la barre : une ligne de texte et un filet.
-        // Pas de panneau, pas de bouton — on lit, on ne pilote pas un tableau
-        // de bord.
-        bottom: p == null
-            ? null
-            : PreferredSize(
-                preferredSize: const Size.fromHeight(26),
-                child: Padding(
-                  padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
-                  child: Row(
-                    children: [
-                      Text(
-                        'Page ${p.pageLisible} / ${p.pages}',
-                        style: TextStyle(fontSize: 12, color: context.couleurs.onPrimary),
-                      ),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: ClipRRect(
-                          borderRadius: BorderRadius.circular(2),
-                          child: LinearProgressIndicator(
-                            value: p.part,
-                            minHeight: 4,
-                            backgroundColor:
-                                context.couleurs.onPrimary.withValues(alpha: 0.25),
-                            valueColor: const AlwaysStoppedAnimation(GafesoMarque.orange),
-                          ),
-                        ),
-                      ),
-                      const SizedBox(width: 12),
-                      Text(
-                        '${p.pourcent} %',
-                        style: TextStyle(fontSize: 12, color: context.couleurs.onPrimary),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
       ),
-      body: widget.vueNative ??
-          AndroidView(
-            viewType: 'gafeso-pdf-reader',
-            creationParams: {
-              ...widget.params,
-              'pageDepart': widget.pageDepart,
-              'mode': _mode.cle,
-            },
-            creationParamsCodec: const StandardMessageCodec(),
-          ),
+      body: Column(
+        children: [
+          // ⚠ UNE BANDE, PAS UN PIED DE BARRE. Posée sous la barre verte et
+          // plus sombre qu'elle, elle se distingue sans rompre la continuité —
+          // et elle reste visible pendant qu'on tourne les pages, là où un
+          // panneau escamotable oblige à le rouvrir pour savoir où l'on en est.
+          if (p != null)
+            Container(
+              width: double.infinity,
+              color: context.gafeso.bandeLecteur,
+              padding: const EdgeInsets.fromLTRB(16, 8, 16, 9),
+              child: Row(
+                children: [
+                  Text(
+                    'Page ${p.pageLisible} / ${p.pages}',
+                    style: TextStyle(fontSize: 12, color: context.gafeso.surAplatDeMarque),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: ClipRRect(
+                      borderRadius: BorderRadius.circular(2),
+                      child: LinearProgressIndicator(
+                        value: p.part,
+                        minHeight: 4,
+                        // La barre est un GRAPHIQUE : seuil 3:1 (WCAG 1.4.11),
+                        // et l'orange de marque vaut 3,40:1 sur cette bande.
+                        // Le texte, lui, est blanc à 10,21:1.
+                        backgroundColor: context.gafeso.pisteSurAplat,
+                        valueColor: const AlwaysStoppedAnimation(GafesoMarque.orange),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Text(
+                    '${p.pourcent} %',
+                    style: TextStyle(fontSize: 12, color: context.gafeso.surAplatDeMarque),
+                  ),
+                ],
+              ),
+            ),
+          Expanded(child: widget.vueNative ?? _vueNative()),
+          if (p != null && p.pages > 1) _navigation(p),
+        ],
+      ),
     );
   }
+
+  /// Précédente / Suivante.
+  ///
+  /// ⚠ POURQUOI DES BOUTONS ALORS QUE LE GLISSEMENT MARCHE. Parce qu'il ne
+  /// marche plus dès qu'on a zoomé : la page agrandie prend le geste, et c'est
+  /// voulu — sans quoi le document serait inatteignable. Deux boutons rendent
+  /// le tournage de page accessible dans cet état, et à qui n'a qu'un pouce
+  /// libre.
+  Widget _navigation(Progression p) => SafeArea(
+        top: false,
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(12, 6, 12, 8),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              TextButton.icon(
+                onPressed: p.page > 0 ? () => _allerA(p.page - 1) : null,
+                icon: const Icon(Icons.chevron_left),
+                label: const Text('Précédente'),
+              ),
+              TextButton.icon(
+                onPressed: p.page < p.pages - 1 ? () => _allerA(p.page + 1) : null,
+                // L'icône à DROITE du mot : elle indique le sens du geste, et
+                // la mettre à gauche la ferait lire comme un retour.
+                iconAlignment: IconAlignment.end,
+                icon: const Icon(Icons.chevron_right),
+                label: const Text('Suivante'),
+              ),
+            ],
+          ),
+        ),
+      );
+
+  Future<void> _allerA(int page) async {
+    try {
+      await widget.channel.invokeMethod('allerA', {'page': page});
+    } on MissingPluginException {
+      // Hors appareil (tests) : rien ne lève, l'écran reste cohérent.
+    }
+  }
+
+  Widget _vueNative() => AndroidView(
+        viewType: 'gafeso-pdf-reader',
+        creationParams: {
+          ...widget.params,
+          'pageDepart': widget.pageDepart,
+          'mode': _mode.cle,
+        },
+        creationParamsCodec: const StandardMessageCodec(),
+      );
 }
 
 /// Les trois modes offerts, et **rien d'autre**.

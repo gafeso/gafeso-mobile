@@ -99,9 +99,30 @@ void main() {
     return peint.width / demande;
   }
 
-  /// Plancher de lisibilité : en deçà, le titre est là mais ne se lit plus.
-  /// 0,8 de 22 sp fait encore 17,6 sp.
-  const plancher = 0.8;
+  /// Taille effective du titre, en points — la grandeur qui décide vraiment
+  /// s'il se lit, et non le rapport de réduction.
+  ///
+  /// ⚠ LE PREMIER JET POSAIT UN PLANCHER EN RATIO (0,8), et c'était une
+  /// estimation déguisée en mesure : 0,8 de quoi ? Le jour où la maquette a
+  /// demandé une troisième action dans la barre, le titre est tombé à 76 % —
+  /// soit 16,7 sp, parfaitement lisibles — et le test a crié pour un chiffre
+  /// qui ne désignait rien.
+  ///
+  /// On mesure donc ce qui compte : la taille réellement affichée.
+  double tailleEffective(WidgetTester t, String titre) {
+    final declaree = t
+        .renderObjectList<RenderParagraph>(find.byType(RichText))
+        .firstWhere((p) => p.text.toPlainText().contains(titre))
+        .text
+        .style!
+        .fontSize!;
+    return declaree * reductionDuTitre(t, titre);
+  }
+
+  /// ⚠ 15 points : en deçà, un titre de barre cesse de se lire comme un titre
+  /// et passe pour une légende. C'est la limite basse des styles de corps de
+  /// Material, pas un chiffre choisi pour faire passer le test.
+  const plancherPoints = 15.0;
 
   RenderParagraph paragrapheDuTitre(WidgetTester t, String titre) =>
       t.renderObject<RenderParagraph>(find.descendant(
@@ -116,9 +137,9 @@ void main() {
       expect(find.text('Mon étagère'), findsOneWidget);
       expect(paragrapheDuTitre(t, 'Mon étagère').didExceedMaxLines, isFalse,
           reason: 'le titre est rogné');
-      final r = reductionDuTitre(t, 'Mon étagère');
-      expect(r, greaterThanOrEqualTo(plancher),
-          reason: 'réduit à ${(r * 100).toStringAsFixed(0)} % — illisible');
+      final pt = tailleEffective(t, 'Mon étagère');
+      expect(pt, greaterThanOrEqualTo(plancherPoints),
+          reason: 'affiché à ${pt.toStringAsFixed(1)} pt — trop petit pour un titre');
     });
 
     testWidgets('⚠ sans circulation, le titre long tient AUSSI', (t) async {
@@ -128,11 +149,11 @@ void main() {
       final s = await etatConnecte();
       s.circulationInactive();
       await monter(t, s);
-      expect(find.text('Mes documents'), findsOneWidget);
-      expect(paragrapheDuTitre(t, 'Mes documents').didExceedMaxLines, isFalse);
-      final r = reductionDuTitre(t, 'Mes documents');
-      expect(r, greaterThanOrEqualTo(plancher),
-          reason: 'réduit à ${(r * 100).toStringAsFixed(0)} % — illisible');
+      expect(find.text('Documents'), findsOneWidget);
+      expect(paragrapheDuTitre(t, 'Documents').didExceedMaxLines, isFalse);
+      final pt = tailleEffective(t, 'Documents');
+      expect(pt, greaterThanOrEqualTo(plancherPoints),
+          reason: 'affiché à ${pt.toStringAsFixed(1)} pt — trop petit pour un titre');
     });
   });
 
@@ -153,12 +174,16 @@ void main() {
               alignment: Alignment.centerLeft,
               child: Text('Un titre délibérément interminable qui ne peut pas tenir'),
             ),
-            actions: const [Icon(Icons.search), Icon(Icons.more_vert)],
+            actions: const [
+              Icon(Icons.grid_view_outlined),
+              Icon(Icons.search),
+              Icon(Icons.more_vert),
+            ],
           ),
         ),
       ));
       const long = 'Un titre délibérément interminable qui ne peut pas tenir';
-      expect(reductionDuTitre(t, long), lessThan(plancher));
+      expect(tailleEffective(t, long), lessThan(plancherPoints));
     });
   });
 
@@ -167,15 +192,18 @@ void main() {
       final s = await etatConnecte();
       await monter(t, s);
       expect(find.widgetWithIcon(IconButton, Icons.search), findsOneWidget);
+      // La bascule d'affichage, demandée dans la barre par la maquette.
+      expect(find.widgetWithIcon(IconButton, Icons.view_list_outlined), findsOneWidget);
       // Tout le reste est descendu dans le menu : plus d'icône à deviner.
       expect(find.widgetWithIcon(IconButton, Icons.refresh), findsNothing);
       expect(find.widgetWithIcon(IconButton, Icons.badge_outlined), findsNothing);
       expect(find.widgetWithIcon(IconButton, Icons.info_outline), findsNothing);
-      // DEUX boutons en tout : la recherche, et celui que le menu porte
-      // lui-même. C'est ce budget — et lui seul — qui rend le titre entier ;
-      // une troisième action le ferait retomber sous le plancher.
+      // TROIS boutons : la bascule grille/liste, la recherche, et celui que le
+      // menu porte lui-même. ⚠ C'est le budget MAXIMAL : le titre s'affiche
+      // alors à 16,7 pt au lieu de 22, et une quatrième action le ferait
+      // passer sous les 15 pt.
       expect(find.descendant(of: find.byType(AppBar), matching: find.byType(IconButton)),
-          findsNWidgets(2));
+          findsNWidgets(3));
     });
 
     testWidgets('le menu nomme les destinations, et respecte la circulation',

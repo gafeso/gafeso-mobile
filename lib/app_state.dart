@@ -101,13 +101,17 @@ class AppState extends ChangeNotifier {
   /// l'usager ne reçoit rien au comptoir, il consulte des documents que son
   /// établissement lui ouvre. Le mot doit le dire.
   ///
-  /// ⚠ COURT, ET C'EST MESURÉ. « Mes documents hors ligne » demande 534 dp à la
-  /// taille d'un titre de barre : il ne tient sur AUCUN écran de 360 dp, quelle
-  /// que soit la taille de police et même sans une seule icône. Le qualificatif
-  /// « hors ligne » vit donc dans le corps de l'écran — l'état vide le dit, et
-  /// chaque ligne téléchargée porte « Disponible hors ligne ».
+  /// ⚠ COURT, ET C'EST MESURÉ, DEUX FOIS. « Mes documents hors ligne » demande
+  /// 534 dp à la taille d'un titre de barre : il ne tient sur AUCUN écran de
+  /// 360 dp, même sans une seule icône. Puis « Mes documents » (289 dp) est
+  /// tombé à 14,0 pt le jour où la maquette a demandé une troisième action dans
+  /// la barre — sous le seuil où un titre cesse de se lire comme un titre.
+  ///
+  /// Le qualificatif « hors ligne » vit donc dans le corps de l'écran — l'état
+  /// vide le dit, et chaque document emporté porte sa pastille. Et le possessif
+  /// est porté par le contexte : on n'arrive ici qu'après s'être connecté.
   String get titreEtagere =>
-      circulationActive ? 'Mon étagère' : 'Mes documents';
+      circulationActive ? 'Mon étagère' : 'Documents';
 
   /// Prend acte du refus. Silencieux par construction : l'absence d'un module
   /// n'est pas une panne, et il n'y a RIEN à annoncer à l'usager — on retire

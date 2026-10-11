@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 
 import '../theme/gafeso_theme.dart';
@@ -14,6 +15,7 @@ import '../app_state.dart';
 import '../session/library_store.dart';
 import '../models/catalog.dart';
 import '../session/metadonnees_document.dart';
+import '../session/preferences_affichage.dart';
 import '../session/progress_store.dart';
 import '../widgets/couverture_generee.dart';
 import 'reader_screen.dart';
@@ -50,10 +52,23 @@ class _ShelfScreenState extends State<ShelfScreen> {
   bool _surCetAppareil = false;
   _Tri _tri = _Tri.ajoutRecent;
 
+  /// Grille ou liste. ⚠ MÉMORISÉ, contrairement aux filtres : un filtre qui
+  /// survit rouvre une étagère amputée sans qu'on sache pourquoi, alors qu'une
+  /// forme d'affichage qu'il faut rechoisir à chaque ouverture n'est pas un
+  /// choix, c'est une corvée.
+  final _affichage = PreferencesAffichage();
+  bool _grille = true;
+
   @override
   void initState() {
     super.initState();
     _load();
+    unawaited(_lireAffichage());
+  }
+
+  Future<void> _lireAffichage() async {
+    final g = await _affichage.enGrille();
+    if (mounted && g != _grille) setState(() => _grille = g);
   }
 
   Future<void> _load() async {
@@ -272,7 +287,11 @@ class _ShelfScreenState extends State<ShelfScreen> {
       for (final e in _local.entries) e.key: e.value.title,
     };
     final ids = _trier(_filtrer(tous, titles), titles);
-    final enCours = _lecturesEnCours();
+    // ⚠ UNE SEULE lecture à reprendre, la plus récente. Proposer une rangée de
+    // « continuer » transformerait un raccourci en liste de choix : on revient
+    // dans une application de lecture pour reprendre là où on s'est arrêté, pas
+    // pour arbitrer entre six reprises.
+    final reprise = _lecturesEnCours().firstOrNull;
 
     return Scaffold(
       appBar: AppBar(
@@ -299,6 +318,17 @@ class _ShelfScreenState extends State<ShelfScreen> {
         // deviner. « Actualiser » y descend aussi : l'écran se charge seul à
         // l'ouverture, et le bandeau hors-ligne porte déjà son « Réessayer ».
         actions: [
+          IconButton(
+            tooltip: _grille ? 'Afficher en liste' : 'Afficher en grille',
+            onPressed: () {
+              setState(() => _grille = !_grille);
+              unawaited(_affichage.poser(grille: _grille));
+            },
+            // ⚠ L'ICÔNE MONTRE CE QU'ON OBTIENDRA, pas l'état courant : un
+            // bouton qui affiche la forme déjà à l'écran se lit comme un
+            // indicateur, et personne n'appuie dessus.
+            icon: Icon(_grille ? Icons.view_list_outlined : Icons.grid_view_outlined),
+          ),
           IconButton(
             tooltip: 'Rechercher dans le catalogue',
             onPressed: _ouvrirRecherche,
@@ -388,54 +418,51 @@ class _ShelfScreenState extends State<ShelfScreen> {
                     ],
                   ),
                 Expanded(
-                  child: ids.isEmpty && enCours.isEmpty
+                  child: ids.isEmpty && reprise == null
                       ? _etagereVide()
                       : RefreshIndicator(
                           onRefresh: _load,
-                          child: ListView(
-                            children: [
-                              _compteurs(),
-                              if (enCours.isNotEmpty) _sectionEnCours(enCours, titles),
-                              if (ids.isEmpty)
-                                Padding(
-                                  padding: const EdgeInsets.all(32),
-                                  child: Text(
-                                    'Aucun document ne correspond à ce filtre.',
-                                    textAlign: TextAlign.center,
-                                    style: TextStyle(color: context.gafeso.texteSecondaire),
-                                  ),
+                          child: CustomScrollView(
+                            slivers: [
+                              SliverToBoxAdapter(child: _compteurs()),
+                              if (reprise != null)
+                                SliverToBoxAdapter(
+                                  child: _continuerLaLecture(reprise, titles),
                                 ),
-                              for (final id in ids)
-                                _DocTile(
-                                  title: titles[id] ?? id,
-                                  // ⚠ COUVERTURE AUSSI DANS LA LISTE. Elle y
-                                  // manquait : l'étagère restait une colonne
-                                  // d'icônes PDF identiques, là où la teinte du
-                                  // domaine permet de retrouver un document
-                                  // d'un coup d'œil. Possible seulement depuis
-                                  // que la route porte le domaine (rc8).
-                                  couverture: CouvertureGeneree(
-                                    titre: titles[id] ?? id,
-                                    auteur: _meta(id).auteur,
-                                    annee: _meta(id).annee,
-                                    domaine: _meta(id).domaine,
-                                    largeur: 40,
-                                    hauteur: 56,
-                                  ),
-                                  downloaded: _local.containsKey(id),
-                                  expiree: _local[id]?.estExpiree(DateTime.now()) ?? false,
-                                  finDeBail: _local[id]?.expiresAt,
-                                  busy: _busy.contains(id),
-                                  onDownload: () => _download(
-                                    _remote.firstWhere(
-                                      (d) => d.docId == id,
-                                      orElse: () => ShelfDocument(
-                                        docId: id, title: titles[id] ?? id, fileFormat: 'PDF'),
+                              if (ids.isEmpty)
+                                SliverToBoxAdapter(
+                                  child: Padding(
+                                    padding: const EdgeInsets.all(32),
+                                    child: Text(
+                                      'Aucun document ne correspond à ce filtre.',
+                                      textAlign: TextAlign.center,
+                                      style: TextStyle(color: context.gafeso.texteSecondaire),
                                     ),
                                   ),
-                                  onOpen: () => _open(id, titles[id] ?? id),
-                                  onRenew: () => _renouveler(id, titles[id] ?? id),
-                                  onRemove: () => _remove(id),
+                                )
+                              else if (_grille)
+                                SliverPadding(
+                                  padding: const EdgeInsets.fromLTRB(16, 6, 16, 24),
+                                  sliver: SliverGrid(
+                                    gridDelegate:
+                                        const SliverGridDelegateWithFixedCrossAxisCount(
+                                      crossAxisCount: 2,
+                                      crossAxisSpacing: 12,
+                                      mainAxisSpacing: 16,
+                                      // Couverture au ratio 0,72, plus la place
+                                      // du titre (2 lignes) et de l'état.
+                                      childAspectRatio: 0.72 / 1.42,
+                                    ),
+                                    delegate: SliverChildBuilderDelegate(
+                                      (_, i) => _tuile(ids[i], titles),
+                                      childCount: ids.length,
+                                    ),
+                                  ),
+                                )
+                              else
+                                SliverList.builder(
+                                  itemCount: ids.length,
+                                  itemBuilder: (_, i) => _ligne(ids[i], titles),
                                 ),
                             ],
                           ),
@@ -540,113 +567,428 @@ class _ShelfScreenState extends State<ShelfScreen> {
   ///
   /// ⚠ Pas de « temps de lecture », pas de « pages lues cette semaine » : ces
   /// données n'existent pas. On compte ce que l'appareil sait vraiment.
+  /// Trois compteurs en CARTES.
+  ///
+  /// ⚠ Pas de « temps de lecture », pas de « pages lues cette semaine » : ces
+  /// données n'existent pas. On compte ce que l'appareil sait vraiment.
+  /// Le dernier est en orange : « sur l'appareil » est le seul des trois qui
+  /// dise quelque chose du HORS-LIGNE, et c'est ce que ce produit existe pour
+  /// rendre possible.
   Widget _compteurs() {
     final enCours = _progression.values.where((p) => p.enCours).length;
     final termines = _progression.values.where((p) => p.termine).length;
     final locaux = _local.length;
-    Widget n(String valeur, String libelle) => Expanded(
-          child: Column(
-            children: [
-              Text(valeur,
+
+    Widget carte(String valeur, String libelle, {bool accent = false}) => Expanded(
+          child: Container(
+            padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 8),
+            decoration: BoxDecoration(
+              color: context.gafeso.carteSurface,
+              borderRadius: BorderRadius.circular(10),
+              border: Border.all(color: context.couleurs.outlineVariant.withValues(alpha: 0.5)),
+            ),
+            child: Column(
+              children: [
+                Text(
+                  valeur,
                   style: TextStyle(
-                      fontSize: 22,
-                      fontWeight: FontWeight.w700,
-                      color: context.couleurs.primary)),
-              Text(libelle,
+                    fontSize: 24,
+                    fontWeight: FontWeight.w700,
+                    color: accent ? GafesoMarque.orange : context.couleurs.primary,
+                  ),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  libelle,
                   textAlign: TextAlign.center,
-                  style: TextStyle(fontSize: 11, color: context.gafeso.texteSecondaire)),
-            ],
+                  style: TextStyle(fontSize: 11, color: context.gafeso.texteSecondaire),
+                ),
+              ],
+            ),
           ),
         );
+
     return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
+      padding: const EdgeInsets.fromLTRB(16, 14, 16, 6),
       child: Row(
         children: [
-          n('$enCours', 'en cours'),
-          n('$termines', 'terminés'),
-          n('$locaux', 'sur cet appareil'),
+          carte('$enCours', 'en cours'),
+          const SizedBox(width: 10),
+          carte('$termines', 'terminés'),
+          const SizedBox(width: 10),
+          carte('$locaux', 'sur l’appareil', accent: true),
         ],
       ),
     );
   }
 
-  /// Section « Lectures en cours » : couverture, auteur, pourcentage, filet.
-  Widget _sectionEnCours(List<Progression> l, Map<String, String> titles) => Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Padding(
-            padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
-            child: Text('Lectures en cours',
-                style: TextStyle(
-                    fontSize: 13,
-                    fontWeight: FontWeight.w700,
-                    color: context.gafeso.texteSecondaire)),
-          ),
-          SizedBox(
-            height: 148,
-            child: ListView.separated(
-              scrollDirection: Axis.horizontal,
-              padding: const EdgeInsets.symmetric(horizontal: 16),
-              itemCount: l.length,
-              separatorBuilder: (_, _) => const SizedBox(width: 12),
-              itemBuilder: (_, i) {
-                final p = l[i];
-                final d = _local[p.docId];
-                return SizedBox(
-                  width: 96,
-                  child: InkWell(
-                    onTap: () => _open(p.docId, titles[p.docId] ?? p.docId),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        ClipRRect(
-                          borderRadius: BorderRadius.circular(4),
-                          child: CouvertureGeneree(
-                            titre: titles[p.docId] ?? d?.title ?? '',
-                            auteur: _meta(p.docId).auteur,
-                            type: d?.type,
-                            annee: _meta(p.docId).annee,
-                            domaine: _meta(p.docId).domaine,
-                            largeur: 96,
-                            hauteur: 96,
-                          ),
+  /// ⭐ « CONTINUER LA LECTURE » — la seule chose qu'on vient souvent faire.
+  ///
+  /// ⚠ Elle est ABSENTE s'il n'y a rien à reprendre. Une carte « Continuer »
+  /// vide, ou pointant le premier document venu, ferait perdre du temps à
+  /// chaque ouverture pour ne rien proposer.
+  Widget _continuerLaLecture(Progression p, Map<String, String> titles) {
+    final m = _meta(p.docId);
+    final titre = titles[p.docId] ?? _local[p.docId]?.title ?? '';
+    final annexe = [
+      if (m.auteur != null) m.auteur!,
+      if (m.annee != null) '${m.annee}',
+    ].join(' · ');
+
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 8, 16, 10),
+      child: Material(
+        color: context.gafeso.carteSurface,
+        borderRadius: BorderRadius.circular(12),
+        child: InkWell(
+          borderRadius: BorderRadius.circular(12),
+          onTap: () => _open(p.docId, titre),
+          child: Padding(
+            padding: const EdgeInsets.all(12),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                ClipRRect(
+                  borderRadius: BorderRadius.circular(5),
+                  child: CouvertureGeneree(
+                    titre: titre,
+                    auteur: m.auteur,
+                    type: _local[p.docId]?.type,
+                    annee: m.annee,
+                    domaine: m.domaine,
+                    largeur: 92,
+                    hauteur: 130,
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'CONTINUER LA LECTURE',
+                        style: TextStyle(
+                          fontSize: 10,
+                          letterSpacing: 1.1,
+                          fontWeight: FontWeight.w700,
+                          color: GafesoMarque.orange,
                         ),
-                        const SizedBox(height: 6),
-                        if (_meta(p.docId).auteur != null)
-                          Text(_meta(p.docId).auteur!,
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                              style: TextStyle(
-                                  fontSize: 11, color: context.gafeso.texteSecondaire)),
-                        const SizedBox(height: 4),
-                        Row(
-                          children: [
-                            Expanded(
-                              child: ClipRRect(
-                                borderRadius: BorderRadius.circular(2),
-                                child: LinearProgressIndicator(
-                                  value: p.part,
-                                  minHeight: 4,
-                                  backgroundColor: context.couleurs.surfaceContainerHighest,
-                                ),
-                              ),
-                            ),
-                            const SizedBox(width: 6),
-                            Text('${p.pourcent} %',
-                                style: TextStyle(
-                                    fontSize: 10, color: context.gafeso.texteSecondaire)),
-                          ],
+                      ),
+                      const SizedBox(height: 6),
+                      Text(
+                        titre,
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          fontFamily: 'serif',
+                          fontSize: 17,
+                          height: 1.2,
+                          fontWeight: FontWeight.w600,
+                          color: context.gafeso.texteSurCarteSurface,
+                        ),
+                      ),
+                      if (annexe.isNotEmpty) ...[
+                        const SizedBox(height: 3),
+                        Text(
+                          annexe,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(fontSize: 12, color: context.gafeso.texteSecondaire),
                         ),
                       ],
-                    ),
+                      const SizedBox(height: 12),
+                      ClipRRect(
+                        borderRadius: BorderRadius.circular(3),
+                        child: LinearProgressIndicator(
+                          value: p.part,
+                          minHeight: 6,
+                          backgroundColor: context.couleurs.outlineVariant.withValues(alpha: 0.4),
+                          valueColor: const AlwaysStoppedAnimation(GafesoMarque.orange),
+                        ),
+                      ),
+                      const SizedBox(height: 6),
+                      Text(
+                        'Page ${p.pageLisible} sur ${p.pages} · ${p.pourcent} %',
+                        style: TextStyle(fontSize: 12, color: context.gafeso.texteSecondaire),
+                      ),
+                    ],
                   ),
-                );
-              },
+                ),
+              ],
             ),
           ),
-          const Divider(height: 24),
+        ),
+      ),
+    );
+  }
+
+  /// Tuile de GRILLE : couverture au ratio 0,72, puis titre et état.
+  Widget _tuile(String id, Map<String, String> titles) {
+    final titre = titles[id] ?? id;
+    final m = _meta(id);
+    final local = _local[id];
+    final sur = local != null;
+    final expiree = local?.estExpiree(DateTime.now()) ?? false;
+
+    return InkWell(
+      borderRadius: BorderRadius.circular(8),
+      onTap: () => _ouvrirOuEmporter(id, titre),
+      // ⚠ Le retrait est sous un APPUI LONG : la corbeille posée à côté du
+      // titre se touchait par erreur, et elle occupait une place que la
+      // couverture utilise mieux.
+      onLongPress: sur ? () => _confirmerRetrait(id, titre) : null,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          AspectRatio(
+            aspectRatio: 0.72,
+            child: Stack(
+              children: [
+                Positioned.fill(
+                  child: ClipRRect(
+                    borderRadius: BorderRadius.circular(6),
+                    child: LayoutBuilder(
+                      builder: (_, c) => CouvertureGeneree(
+                        titre: titre,
+                        auteur: m.auteur,
+                        type: local?.type,
+                        annee: m.annee,
+                        domaine: m.domaine,
+                        largeur: c.maxWidth,
+                        hauteur: c.maxHeight,
+                      ),
+                    ),
+                  ),
+                ),
+                if (sur)
+                  Positioned(
+                    top: 6,
+                    right: 6,
+                    child: Container(
+                      width: 22,
+                      height: 22,
+                      decoration: BoxDecoration(
+                        color: expiree ? context.gafeso.avertissement : GafesoMarque.orangeFonce,
+                        shape: BoxShape.circle,
+                      ),
+                      child: Icon(
+                        expiree ? Icons.schedule : Icons.check,
+                        size: 14,
+                        color: context.gafeso.surAplatDeMarque,
+                      ),
+                    ),
+                  ),
+                if (_busy.contains(id))
+                  Positioned.fill(
+                    child: ColoredBox(
+                      color: context.gafeso.voile,
+                      child: const Center(child: CircularProgressIndicator(strokeWidth: 2)),
+                    ),
+                  ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 7),
+          Text(
+            titre,
+            maxLines: 2,
+            overflow: TextOverflow.ellipsis,
+            style: const TextStyle(fontSize: 13, height: 1.25, fontWeight: FontWeight.w600),
+          ),
+          const SizedBox(height: 2),
+          Text(
+            sur ? _etatLisible(id) : 'À télécharger',
+            style: TextStyle(fontSize: 11, color: context.gafeso.texteSecondaire),
+          ),
         ],
-      );
+      ),
+    );
+  }
+
+  /// Ligne de LISTE : plus dense, même information.
+  Widget _ligne(String id, Map<String, String> titles) {
+    final titre = titles[id] ?? id;
+    final m = _meta(id);
+    final local = _local[id];
+    final sur = local != null;
+    final p = _progression[id];
+    final annexe = [
+      if (m.auteur != null) m.auteur!,
+      if (m.annee != null) '${m.annee}',
+    ].join(' · ');
+
+    return InkWell(
+      onTap: () => _ouvrirOuEmporter(id, titre),
+      onLongPress: sur ? () => _confirmerRetrait(id, titre) : null,
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(16, 10, 8, 10),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Stack(
+              children: [
+                ClipRRect(
+                  borderRadius: BorderRadius.circular(4),
+                  child: CouvertureGeneree(
+                    titre: titre,
+                    type: local?.type,
+                    domaine: m.domaine,
+                    largeur: 56,
+                    hauteur: 78,
+                  ),
+                ),
+                if (sur)
+                  Positioned(
+                    top: 3,
+                    right: 3,
+                    child: Container(
+                      width: 16,
+                      height: 16,
+                      decoration: const BoxDecoration(
+                        color: GafesoMarque.orangeFonce,
+                        shape: BoxShape.circle,
+                      ),
+                      child: Icon(Icons.check, size: 11, color: context.gafeso.surAplatDeMarque),
+                    ),
+                  ),
+              ],
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    titre,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(fontSize: 14, height: 1.25, fontWeight: FontWeight.w600),
+                  ),
+                  if (annexe.isNotEmpty) ...[
+                    const SizedBox(height: 2),
+                    Text(
+                      annexe,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(fontSize: 12, color: context.gafeso.texteSecondaire),
+                    ),
+                  ],
+                  const SizedBox(height: 8),
+                  if (p != null && p.enCours)
+                    ClipRRect(
+                      borderRadius: BorderRadius.circular(2),
+                      child: LinearProgressIndicator(
+                        value: p.part,
+                        minHeight: 4,
+                        backgroundColor: context.couleurs.outlineVariant.withValues(alpha: 0.4),
+                        valueColor: const AlwaysStoppedAnimation(GafesoMarque.orange),
+                      ),
+                    )
+                  else
+                    Text(
+                      sur ? _etatLisible(id) : 'À télécharger',
+                      style: TextStyle(fontSize: 11, color: context.gafeso.texteSecondaire),
+                    ),
+                ],
+              ),
+            ),
+            const SizedBox(width: 6),
+            if (_busy.contains(id))
+              const SizedBox(
+                width: 22,
+                height: 22,
+                child: CircularProgressIndicator(strokeWidth: 2),
+              )
+            else
+              Icon(Icons.chevron_right, color: context.gafeso.texteSecondaire),
+          ],
+        ),
+      ),
+    );
+  }
+
+  /// ⚠ TOUTE LA LIGNE — ET TOUTE LA TUILE — OUVRE LE DOCUMENT. Le bouton
+  /// « Lire » posé à droite n'était atteignable qu'au pouce droit et ne disait
+  /// rien de plus que la ligne elle-même. Si le document n'est pas encore là,
+  /// le même geste l'emporte d'abord : c'est la même intention.
+  Future<void> _ouvrirOuEmporter(String id, String titre) async {
+    final local = _local[id];
+    if (local == null) {
+      await _download(_remote.firstWhere(
+        (d) => d.docId == id,
+        orElse: () => ShelfDocument(docId: id, title: titre, fileFormat: 'PDF'),
+      ));
+      return;
+    }
+    if (local.estExpiree(DateTime.now())) {
+      await _renouveler(id, titre);
+      return;
+    }
+    await _open(id, titre);
+  }
+
+  /// État de lecture, en toutes lettres sous la couverture.
+  String _etatLisible(String id) {
+    final p = _progression[id];
+    if (p == null) return 'Non commencé';
+    if (p.termine) return 'Terminé';
+    return '${p.pourcent} %';
+  }
+
+  /// ⚠ LE RETRAIT PASSE PAR UN APPUI LONG ET UNE CONFIRMATION, et la phrase
+  /// compte autant que le bouton : « retirer » peut se lire « je perds ce
+  /// document ». On dit donc ce qui reste vrai — le droit de lecture n'est pas
+  /// touché, le fichier se retéléchargera.
+  Future<void> _confirmerRetrait(String id, String titre) async {
+    final retirer = await showModalBottomSheet<bool>(
+      context: context,
+      showDragHandle: true,
+      builder: (ctx) => SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(20, 0, 20, 20),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                'Retirer « $titre » de cet appareil ?',
+                style: const TextStyle(fontSize: 17, fontWeight: FontWeight.w600),
+              ),
+              const SizedBox(height: 10),
+              Text(
+                'Le document reste dans votre bibliothèque : vous pourrez le '
+                'télécharger de nouveau tant que votre droit de lecture est valide.',
+                style: TextStyle(fontSize: 13, color: context.gafeso.texteSecondaire, height: 1.4),
+              ),
+              const SizedBox(height: 20),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.end,
+                children: [
+                  TextButton(
+                    onPressed: () => Navigator.of(ctx).pop(false),
+                    child: const Text('Annuler'),
+                  ),
+                  const SizedBox(width: 8),
+                  FilledButton(
+                    style: FilledButton.styleFrom(
+                      // ⚠ EN FOND, avec du texte blanc (6,69:1). Posé comme
+                      // texte sur une carte sombre, ce rouge tombe à 2,37:1 —
+                      // un geste destructeur doit se lire dans les deux thèmes.
+                      backgroundColor: context.gafeso.retrait,
+                      foregroundColor: context.gafeso.surAplatDeMarque,
+                    ),
+                    onPressed: () => Navigator.of(ctx).pop(true),
+                    child: const Text('Retirer'),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+    if (retirer == true) await _remove(id);
+  }
 
   /// Feuille du bas : état, « sur cet appareil », tri, réinitialiser.
   void _ouvrirFiltres() {
@@ -776,147 +1118,6 @@ class _ShelfScreenState extends State<ShelfScreen> {
           ),
         ),
       );
-}
-
-class _DocTile extends StatelessWidget {
-  const _DocTile({
-    required this.title,
-    required this.couverture,
-    required this.downloaded,
-    required this.busy,
-    required this.onDownload,
-    required this.onOpen,
-    required this.onRemove,
-    this.expiree = false,
-    this.finDeBail,
-    this.onRenew,
-  });
-
-  final String title;
-  final Widget couverture;
-  final bool downloaded;
-  final bool busy;
-
-  /// Le bail est-il échu ? ⚠ Un document expiré est TOUJOURS sur l'appareil —
-  /// c'est sa licence qui ne vaut plus, pas son contenu. On ne le purge donc
-  /// pas : seule une réponse du serveur (`revoked`/`expired`) le retire, jamais
-  /// l'horloge locale, qu'un changement d'heure suffirait à fausser.
-  final bool expiree;
-  final DateTime? finDeBail;
-
-  final VoidCallback onDownload;
-  final VoidCallback onOpen;
-  final VoidCallback onRemove;
-  final VoidCallback? onRenew;
-
-  static String _jour(DateTime d) {
-    final l = d.toLocal();
-    return '${l.day.toString().padLeft(2, '0')}/'
-        '${l.month.toString().padLeft(2, '0')}/${l.year}';
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    // ⚠ TROIS ÉTATS, ET LE TROISIÈME MANQUAIT. L'étagère annonçait « Disponible
-    // hors ligne » pour un bail échu : le lecteur natif refusait ensuite
-    // d'ouvrir, et rien n'avait prévenu. La date était pourtant sur l'appareil,
-    // dans le corps de licence.
-    final sousTitre = !downloaded
-        ? 'À télécharger'
-        : expiree
-            ? (finDeBail == null
-                ? 'Licence expirée — à renouveler'
-                : 'Licence expirée le ${_jour(finDeBail!)} — à renouveler')
-            : 'Disponible hors ligne';
-
-    final icone = !downloaded
-        ? Icons.picture_as_pdf_outlined
-        : expiree
-            ? Icons.lock_clock_outlined
-            : Icons.offline_pin;
-
-    Widget actions() {
-      if (busy) {
-        return const SizedBox(
-          width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2));
-      }
-      if (!downloaded) {
-        return OutlinedButton.icon(
-          onPressed: onDownload,
-          icon: const Icon(Icons.download),
-          label: const Text('Télécharger'),
-        );
-      }
-      return Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          IconButton(
-            tooltip: 'Retirer de l’appareil',
-            icon: const Icon(Icons.delete_outline),
-            onPressed: onRemove,
-          ),
-          // ⚠ « Renouveler » REMPLACE « Lire » quand le bail est échu : proposer
-          // « Lire » mènerait au refus du lecteur, c'est-à-dire à un geste dont
-          // on connaît déjà l'échec.
-          expiree
-              ? FilledButton(
-                  onPressed: onRenew,
-                  child: const Text('Renouveler'),
-                )
-              : FilledButton(onPressed: onOpen, child: const Text('Lire')),
-        ],
-      );
-    }
-
-    return ListTile(
-      leading: SizedBox(
-        width: 40,
-        child: Stack(
-          clipBehavior: Clip.none,
-          children: [
-            ClipRRect(borderRadius: BorderRadius.circular(3), child: couverture),
-            // L'ORANGE DES PAGES marque ce qui est EMPORTÉ : c'est le geste
-            // propre à ce produit — un document qu'on a sur soi, lisible sans
-            // réseau. La pastille se POSE sur la couverture au lieu de la
-            // remplacer : on garde l'identification par la teinte du domaine ET
-            // le repère « déjà là ».
-            if (downloaded)
-              Positioned(
-                right: -5,
-                bottom: -3,
-                child: Container(
-                  decoration: BoxDecoration(
-                    color: context.couleurs.surface,
-                    shape: BoxShape.circle,
-                  ),
-                  padding: const EdgeInsets.all(1),
-                  child: Icon(
-                    icone,
-                    size: 15,
-                    color: expiree
-                        ? context.gafeso.avertissement
-                        : GafesoMarque.orange,
-                  ),
-                ),
-              ),
-          ],
-        ),
-      ),
-      title: Text(title),
-      subtitle: Text(
-        sousTitre,
-        style: expiree && downloaded
-            ? TextStyle(color: context.gafeso.surAvertissement, fontWeight: FontWeight.w500)
-            : null,
-      ),
-      trailing: actions(),
-      onTap: !downloaded
-          ? onDownload
-          : expiree
-              ? onRenew
-              : onOpen,
-    );
-  }
 }
 
 /// État de lecture, tel que l'étagère le filtre.

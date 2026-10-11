@@ -96,84 +96,74 @@ class CouvertureGeneree extends StatelessWidget {
       );
 
   Widget _texte(Color encre) {
-    // Les tailles suivent la HAUTEUR : la même couverture sert la vignette d'une
-    // liste et le bloc d'une fiche, sans deux jeux de constantes à tenir
-    // d'accord.
-    final t = hauteur * 0.082;
-    final s = hauteur * 0.055;
+    // ⚠ LES RAPPORTS SONT CALÉS SUR LA TUILE DE GRILLE (ratio 0,72), puis
+    // suivent la hauteur ailleurs. Deux jeux de constantes — un pour la grille,
+    // un pour la fiche — finiraient par diverger ; ici une seule maquette sert
+    // les deux tailles, et la grille est celle qu'on a dessinée.
+    final t = hauteur * 0.082; // titre
+    final s = hauteur * 0.050; // auteur · année
+    final c = hauteur * 0.046; // type, en capitales
+    final annexe = [
+      if (auteur != null && auteur!.trim().isNotEmpty && avecAuteur) auteur!.trim(),
+      if (annee != null) '$annee',
+    ].join(' · ');
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
+        if (type != null && type!.trim().isNotEmpty) ...[
+          Text(
+            type!.toUpperCase(),
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: TextStyle(
+              fontSize: c,
+              letterSpacing: c * 0.14,
+              fontWeight: FontWeight.w700,
+              color: encre,
+              height: 1,
+            ),
+          ),
+          SizedBox(height: hauteur * 0.035),
+        ],
         Expanded(
           child: Text(
             titre,
-            maxLines: hauteur > 160 ? 5 : 4,
+            maxLines: 4,
             overflow: TextOverflow.ellipsis,
             style: TextStyle(
+              // ⚠ SÉRIF, et c'est la famille GÉNÉRIQUE du système : aucun
+              // fichier de police embarqué. Une fonte de 300 Ko pour quatre
+              // lignes de titre coûterait plus cher que tout le reste de
+              // l'application, sur des appareils qu'on a choisi de ménager.
+              fontFamily: 'serif',
               fontSize: t,
-              height: 1.22,
-              fontWeight: FontWeight.w700,
+              height: 1.2,
+              fontWeight: FontWeight.w600,
               color: encre,
             ),
           ),
         ),
-        if (avecAuteur && auteur != null && auteur!.trim().isNotEmpty) ...[
-          SizedBox(height: hauteur * 0.02),
+        if (annexe.isNotEmpty) ...[
+          // Le filet : translucide, donc il suit la teinte du domaine au lieu
+          // de poser un blanc franc qui trancherait sur les fonds les plus
+          // clairs de la palette.
+          Container(
+            height: 1,
+            margin: EdgeInsets.only(bottom: hauteur * 0.035),
+            color: encre.withValues(alpha: 0.35),
+          ),
           Text(
-            auteur!,
+            annexe,
             maxLines: 2,
             overflow: TextOverflow.ellipsis,
             style: TextStyle(
               fontSize: s,
               height: 1.2,
-              // ⚠ Pas une encre plus pâle : sur ces fonds, un blanc atténué
-              // retombe sous le seuil. On distingue par la GRAISSE et la
-              // taille, pas par le contraste.
               color: encre,
-              fontWeight: FontWeight.w400,
             ),
           ),
         ],
-        SizedBox(height: hauteur * 0.03),
-        Row(
-          children: [
-            if (type != null && type!.trim().isNotEmpty)
-              Flexible(
-                child: Container(
-                  padding: EdgeInsets.symmetric(
-                    horizontal: hauteur * 0.028,
-                    vertical: hauteur * 0.012,
-                  ),
-                  decoration: BoxDecoration(
-                    border: Border.all(color: encre, width: 1),
-                    borderRadius: BorderRadius.circular(3),
-                  ),
-                  child: Text(
-                    type!.toUpperCase(),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: TextStyle(
-                      fontSize: hauteur * 0.040,
-                      letterSpacing: 0.5,
-                      fontWeight: FontWeight.w600,
-                      color: encre,
-                    ),
-                  ),
-                ),
-              ),
-            if (annee != null) ...[
-              const Spacer(),
-              Text(
-                '$annee',
-                style: TextStyle(
-                  fontSize: hauteur * 0.046,
-                  fontWeight: FontWeight.w500,
-                  color: encre,
-                ),
-              ),
-            ],
-          ],
-        ),
       ],
     );
   }
