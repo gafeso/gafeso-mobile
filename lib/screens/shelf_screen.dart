@@ -372,8 +372,6 @@ class _ShelfScreenState extends State<ShelfScreen> {
             icon: Icon(_filtreActif ? Icons.filter_alt : Icons.more_vert),
             onSelected: (v) async {
               switch (v) {
-                case 'scanner':
-                  await _scanner();
                 case 'filtrer':
                   _ouvrirFiltres();
                 case 'actualiser':
@@ -393,8 +391,6 @@ class _ShelfScreenState extends State<ShelfScreen> {
               }
             },
             itemBuilder: (_) => [
-              const PopupMenuItem(value: 'scanner', child: Text('Scanner une étiquette')),
-              const PopupMenuDivider(),
               PopupMenuItem(
                 value: 'filtrer',
                 child: Text(_filtreActif ? 'Filtrer et trier ·' : 'Filtrer et trier'),
@@ -426,6 +422,18 @@ class _ShelfScreenState extends State<ShelfScreen> {
             ],
           ),
         ],
+      ),
+      // ⚠ UN BOUTON FLOTTANT, PAS UNE ENTRÉE DE MENU. Jean demande un bouton
+      // « Scanner » SUR L'ACCUEIL, et il a raison : on scanne debout, devant un
+      // rayonnage, une main tenant le livre — pas en ouvrant un menu.
+      //
+      // La barre, elle, est pleine : ses trois emplacements amènent déjà le
+      // titre à 16,7 pt, et un quatrième le ferait passer sous les 15. Le
+      // bouton flottant ne coûte rien à ce budget.
+      floatingActionButton: FloatingActionButton.extended(
+        onPressed: _scanner,
+        icon: const Icon(Icons.qr_code_scanner),
+        label: const Text('Scanner'),
       ),
       body: _loading
           ? const Center(child: CircularProgressIndicator())
