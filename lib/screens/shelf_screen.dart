@@ -12,6 +12,7 @@ import 'search_screen.dart';
 import '../api/gafeso_api.dart';
 import '../app_state.dart';
 import '../session/library_store.dart';
+import '../models/catalog.dart';
 import '../session/metadonnees_document.dart';
 import '../session/progress_store.dart';
 import '../widgets/couverture_generee.dart';
@@ -235,6 +236,14 @@ class _ShelfScreenState extends State<ShelfScreen> {
               // serveur, et cela marche hors ligne.
               estLocal: _local.containsKey(hit.id),
               progression: _progression[hit.id],
+              // ⚠ LE BOUTON PRINCIPAL DE LA FICHE ÉTAIT INERTE. Faute de ce
+              // rappel, `onOpenDigital` valait `null` et le bouton restait
+              // désactivé : la fiche affichait « Télécharger », le lecteur
+              // appuyait, rien ne se passait. C'était déjà vrai quand c'était
+              // une carte à toucher — en faire un bouton n'a pas créé le
+              // défaut, cela l'a rendu visible, et c'est exactement ce qu'on
+              // attend d'un bouton.
+              onOpenDigital: (ctx, n) => _depuisLaFiche(ctx, n),
             ),
           )),
         ),
@@ -438,6 +447,28 @@ class _ShelfScreenState extends State<ShelfScreen> {
   }
 
   // ── Filtres, tri, compteurs ───────────────────────────────────────────────
+
+  /// Emporter puis lire, depuis la FICHE.
+  ///
+  /// Le même geste qu'à l'étagère, déclenché d'ailleurs : si le document n'est
+  /// pas encore sur l'appareil on le télécharge, puis on ouvre le lecteur. Les
+  /// métadonnées viennent de la notice qu'on a sous les yeux — on ne retourne
+  /// pas les redemander à l'étagère.
+  Future<void> _depuisLaFiche(BuildContext ctx, RecordDetail n) async {
+    if (!_local.containsKey(n.id)) {
+      await _download(ShelfDocument(
+        docId: n.id,
+        title: n.title,
+        fileFormat: n.digitalFormat ?? 'PDF',
+        auteur: n.author,
+        domaine: n.category,
+        annee: n.publishYear,
+      ));
+      if (!_local.containsKey(n.id)) return; // le téléchargement a échoué, et il l'a dit
+    }
+    if (!mounted) return;
+    await _open(n.id, n.title);
+  }
 
   /// Voir `metadonneesDocument` : la route d'abord, l'appareil ensuite, et
   /// champ par champ. La règle vit hors de cet écran parce qu'elle s'éprouve

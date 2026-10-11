@@ -3,6 +3,7 @@ import 'dart:io' show SocketException;
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:gafeso_mobile/models/catalog.dart';
 import 'package:gafeso_mobile/api/gafeso_api.dart';
 import 'package:gafeso_mobile/screens/record_screen.dart';
 
@@ -499,6 +500,44 @@ void main() {
       await monter(tester, estLocal: true);
       expect(find.text('Disponible hors ligne'), findsOneWidget);
       expect(find.text('Sur cet appareil'), findsOneWidget);
+    });
+  });
+
+  group('⚠ LE BOUTON PRINCIPAL DOIT AGIR — un bouton inerte est pire qu’une ligne de texte', () {
+    testWidgets('sans rappel fourni, le bouton est DÉSACTIVÉ — c’était le défaut',
+        (tester) async {
+      // Constaté en préparant les captures : la fiche ouverte depuis la
+      // recherche affichait « Télécharger », on appuyait, rien ne se passait.
+      // Le défaut existait déjà quand c'était une carte à toucher ; en faire un
+      // bouton ne l'a pas créé, cela l'a rendu VISIBLE — et c'est exactement ce
+      // qu'on attend d'un bouton.
+      noticeJson = notice(items: [exemplaire('AVAILABLE')], digital: true);
+      await monter(tester);
+      final b = tester.widget<FilledButton>(
+        find.widgetWithText(FilledButton, 'Télécharger'),
+      );
+      expect(b.onPressed, isNull, reason: 'ce cas documente l’état sans rappel');
+    });
+
+    testWidgets('⚠ avec le rappel, il agit — et il transmet LA NOTICE', (tester) async {
+      noticeJson = notice(items: [exemplaire('AVAILABLE')], digital: true);
+      RecordDetail? recue;
+      await tester.pumpWidget(MaterialApp(
+        home: RecordScreen(
+          recordId: 'bdefba53-70ee-4214-b83f-a4cc7f6bde75',
+          titleHint: 'Droit constitutionnel burkinabè',
+          fetchRecord: (id) async => jsonDecode(noticeJson) as Object,
+          placeHold: (id) async => RenewResult(ok: true),
+          onOpenDigital: (_, n) => recue = n,
+        ),
+      ));
+      await tester.pumpAndSettle();
+      await tester.tap(find.widgetWithText(FilledButton, 'Télécharger'));
+      await tester.pumpAndSettle();
+      // La notice, pas seulement son identifiant : l'appelant a besoin du
+      // titre, de l'auteur et du domaine pour composer la couverture locale.
+      expect(recue, isNotNull);
+      expect(recue!.title, 'Droit constitutionnel burkinabè');
     });
   });
 }
